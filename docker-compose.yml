@@ -1,12 +1,75 @@
 version: "3.9"
 
 services:
-  nest-app:
+  postgres:
+    image: postgres:16-alpine
+    container_name: atlas-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: atlas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gateway:
     build: .
-    container_name: nest-app
+    container_name: atlas-gateway
     ports:
       - "3000:3000"
     volumes:
       - .:/app
       - /app/node_modules
-    command: pnpm run start:dev
+    command: pnpm run start:gateway
+    environment:
+      GATEWAY_PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      CONTENT_SERVICE_URL: http://content-service:3002
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    depends_on:
+      - auth-service
+      - content-service
+
+  auth-service:
+    build: .
+    container_name: atlas-auth-service
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: pnpm run start:auth
+    environment:
+      AUTH_SERVICE_PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  content-service:
+    build: .
+    container_name: atlas-content-service
+    ports:
+      - "3002:3002"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: pnpm run start:content
+    environment:
+      CONTENT_SERVICE_PORT: 3002
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

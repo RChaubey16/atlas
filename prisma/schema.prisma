@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  content      Content[]
+
+  @@map("users")
+}
+
+model Content {
+  id        String   @id @default(uuid())
+  title     String
+  body      String
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  owner     User     @relation(fields: [ownerId], references: [id])
+
+  @@map("content")
+}
