@@ -1,98 +1,299 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Atlas
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A production-style microservices backend built with NestJS. Demonstrates clean service boundaries, an API Gateway pattern, JWT authentication, and a shared contracts library — all running in Docker.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Overview
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Atlas is split into three independent services, each with a single responsibility:
 
-## Project setup
+| Service | Port | Responsibility |
+|---|---|---|
+| **API Gateway** | `3000` | Single entry point — routes requests, validates JWT tokens |
+| **Auth Service** | `3001` | User registration, login, and token management |
+| **Content Service** | `3002` | Creating and fetching content owned by a user |
 
-```bash
-$ pnpm install
+All client traffic enters through the **Gateway only**. The other services are internal and never exposed directly.
+
+```
+Client
+  │
+  ▼
+API Gateway  :3000
+  ├──► Auth Service     :3001 ──► PostgreSQL
+  └──► Content Service  :3002 ──► PostgreSQL
 ```
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ pnpm run start
+## Tech Stack
 
-# watch mode
-$ pnpm run start:dev
+| | |
+|---|---|
+| Framework | NestJS 11 (monorepo) |
+| Language | TypeScript |
+| Database | PostgreSQL 16 |
+| ORM | Prisma v7 |
+| Authentication | JWT (access + refresh tokens) |
+| Password hashing | bcrypt |
+| Inter-service communication | HTTP via `@nestjs/axios` |
+| Package manager | pnpm |
+| Containerisation | Docker + Docker Compose |
 
-# production mode
-$ pnpm run start:prod
+---
+
+## Project Structure
+
+```
+atlas/
+├── apps/
+│   ├── gateway/               # API Gateway — port 3000
+│   │   └── src/
+│   │       ├── auth/          # JWT strategy, guard, proxy to auth-service
+│   │       └── content/       # Proxy to content-service (protected routes)
+│   │
+│   ├── auth-service/          # Auth Service — port 3001
+│   │   └── src/
+│   │       ├── auth/          # Register, login, refresh, DTOs, JWT strategy
+│   │       └── prisma/        # PrismaService (database connection)
+│   │
+│   └── content-service/       # Content Service — port 3002
+│       └── src/
+│           ├── content/       # Create, list, fetch content with ownership checks
+│           └── prisma/        # PrismaService (database connection)
+│
+├── libs/
+│   └── contracts/             # Shared event types (imported as @app/contracts)
+│       └── src/
+│           └── events/
+│               └── user-created.event.ts
+│
+├── prisma/
+│   └── schema.prisma          # User and Content database models
+│
+├── docker-compose.yml         # All 4 services wired together
+├── Dockerfile                 # Dev image (used by docker-compose)
+├── Dockerfile.prod            # Multi-stage production image
+├── nest-cli.json              # NestJS monorepo configuration
+└── .env                       # Local environment variables (not committed)
 ```
 
-## Run tests
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/) and Docker Compose
+- [Node.js 20+](https://nodejs.org/) and [pnpm](https://pnpm.io/) (for local dev only)
+
+### 1. Clone the repository
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+git clone <repository-url>
+cd atlas
 ```
 
-## Deployment
+### 2. Create the `.env` file
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Create a `.env` file in the project root:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/atlas?schema=public"
+
+JWT_ACCESS_SECRET="your-access-secret-here"
+JWT_REFRESH_SECRET="your-refresh-secret-here"
+
+GATEWAY_PORT=3000
+AUTH_SERVICE_PORT=3001
+CONTENT_SERVICE_PORT=3002
+
+AUTH_SERVICE_URL="http://localhost:3001"
+CONTENT_SERVICE_URL="http://localhost:3002"
+```
+
+Generate secure secrets with:
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 3. Start all services
 
-## Resources
+```bash
+docker compose up
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+This starts PostgreSQL, the Gateway, Auth Service, and Content Service. The first run will build the Docker images.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### 4. Run database migrations
 
-## Support
+In a separate terminal (while containers are running):
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+npx prisma migrate dev
+```
 
-## Stay in touch
+### 5. Test it
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+# Register a user
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password123"}'
 
-## License
+# Use the returned accessToken to create content
+curl -X POST http://localhost:3000/content \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <accessToken>" \
+  -d '{"title": "Hello World", "body": "My first post."}'
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+## API Reference
+
+All requests go to the Gateway at `http://localhost:3000`.
+
+### Authentication
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/auth/register` | None | Create account, returns token pair |
+| `POST` | `/auth/login` | None | Login, returns token pair |
+| `POST` | `/auth/refresh` | None | Exchange refresh token for new pair |
+
+### Content
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/content` | Bearer token | Create a content item |
+| `GET` | `/content` | Bearer token | List all your content |
+| `GET` | `/content/:id` | Bearer token | Fetch a single content item |
+
+**Add the token to protected requests:**
+```
+Authorization: Bearer <accessToken>
+```
+
+**Access tokens** expire after 15 minutes. Use the `/auth/refresh` endpoint with your `refreshToken` to get a new pair without logging in again. Refresh tokens are valid for 7 days.
+
+For full request/response examples see [`api-guide.md`](./api-guide.md).
+
+---
+
+## Database Schema
+
+```
+users
+├── id           UUID (primary key)
+├── email        String (unique)
+├── password_hash String
+└── created_at   DateTime
+
+content
+├── id           UUID (primary key)
+├── title        String
+├── body         String
+├── owner_id     UUID (foreign key → users.id)
+└── created_at   DateTime
+```
+
+---
+
+## Development
+
+### Run services individually (without Docker)
+
+Start PostgreSQL separately (or use Docker just for Postgres):
+
+```bash
+docker compose up postgres
+```
+
+Then run each service in its own terminal:
+
+```bash
+pnpm run start:gateway    # port 3000
+pnpm run start:auth       # port 3001
+pnpm run start:content    # port 3002
+```
+
+### Build for production
+
+```bash
+pnpm run build:gateway
+pnpm run build:auth
+pnpm run build:content
+```
+
+Or build all with the production Dockerfile:
+
+```bash
+docker build -f Dockerfile.prod -t atlas .
+```
+
+### Testing
+
+```bash
+pnpm test           # unit tests
+pnpm run test:cov   # with coverage report
+```
+
+### Linting
+
+```bash
+pnpm run lint
+```
+
+### Useful Docker commands
+
+```bash
+docker compose up --build        # rebuild images and start
+docker compose up -d             # start in background
+docker compose down              # stop all containers
+docker compose logs auth-service # view logs for a specific service
+```
+
+### After changing the Prisma schema
+
+```bash
+npx prisma migrate dev    # create and apply migration
+npx prisma generate       # regenerate the TypeScript client
+```
+
+---
+
+## Architecture Decisions
+
+**Single shared image** — All three services build from the same `Dockerfile`. The `command` in `docker-compose.yml` determines which app starts. This simplifies the build process for a monorepo while keeping services isolated at runtime.
+
+**HTTP between services** — The Gateway uses `@nestjs/axios` to forward requests to services over HTTP. This is the simplest approach for an MVP and makes each service independently testable with a regular HTTP client.
+
+**User identity via header** — Once the Gateway validates a JWT, it extracts the `userId` and forwards it to the Content Service as the `x-user-id` header. The Content Service trusts this header because it is only reachable internally (not exposed to the public).
+
+**Prisma v7 adapter pattern** — Prisma v7 removed the `url` field from `schema.prisma`. The database connection URL is now passed via the `PrismaPg` driver adapter directly in `PrismaService`. This is reflected in both `PrismaService` files and the `Dockerfile` (which runs `prisma generate` at build time).
+
+**Shared contracts library** — `libs/contracts` defines the shape of internal events (e.g. `UserCreatedEvent`). Services import from `@app/contracts`. This keeps future integrations (message brokers, notification services) decoupled from the start.
+
+---
+
+## Documentation
+
+| File | Contents |
+|---|---|
+| [`notes.md`](./notes.md) | Plain-English explanation of the project and each service |
+| [`nest-notes.md`](./nest-notes.md) | NestJS concepts used in this project, explained from scratch |
+| [`api-guide.md`](./api-guide.md) | Postman guide — every endpoint with request bodies and responses |
+| [`plan/Phase-1.md`](./plan/Phase-1.md) | Original MVP plan and architecture spec |
+
+---
+
+## Roadmap
+
+- [ ] Notification Service — listens for `user.created` events, sends welcome emails
+- [ ] Redis caching — cache frequently read content
+- [ ] Job Worker Service — background task processing with queues
+- [ ] RBAC — role-based access control (admin, editor, viewer)
+- [ ] Multi-tenancy support

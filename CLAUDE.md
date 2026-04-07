@@ -2,132 +2,140 @@
 
 ## What This Project Is
 
-**Atlas** is a NestJS microservices backend portfolio project. The goal is to build a minimal but architecturally sound microservices system demonstrating service boundaries, an API Gateway pattern, event contracts, and clean NestJS modular design.
+**Atlas** is a NestJS microservices backend portfolio project demonstrating service boundaries, API Gateway pattern, event contracts, and clean NestJS modular design.
 
 ## Current State (as of 2026-04-07)
 
-- Basic NestJS app scaffolded (single-app mode, not yet monorepo)
-- Dockerized: `Dockerfile` (dev), `Dockerfile.prod` (multi-stage production build)
-- `docker-compose.yml` runs the app in dev mode on port 3000
-- Package manager: **pnpm**
-- Node version: 20 (alpine in Docker)
-- No services, no database, no auth implemented yet
+Phase 1 MVP is **complete and merged to `main`**.
 
-## Planned Architecture (Phase 1 MVP)
+- NestJS monorepo with 3 apps and 1 shared library
+- Full auth flow: register, login, refresh tokens (JWT + bcrypt)
+- Content CRUD with ownership validation
+- API Gateway proxying all traffic with JWT guard
+- Docker Compose running all 4 services (gateway, auth, content, postgres)
+- Prisma v7 with `@prisma/adapter-pg` (driver adapter required — no `url` in schema)
+- `prisma generate` runs in Dockerfile (required before TypeScript compilation)
+
+## Architecture
 
 ```
-Client → API Gateway → Services
+Client → API Gateway (port 3000) → Auth Service (port 3001)
+                                 → Content Service (port 3002)
+                                         ↓
+                                    PostgreSQL (port 5432)
+```
 
+## Monorepo Structure
+
+```
 apps/
- ├── gateway/          # Single entry point, JWT validation, routing
- ├── auth-service/     # Registration, login, JWT issuance, refresh tokens
- └── content-service/  # Posts/tasks/articles, ownership validation
+ ├── gateway/          # Port 3000 — JWT guard, proxies all routes via HTTP
+ ├── auth-service/     # Port 3001 — register, login, refresh, JWT, bcrypt, Prisma
+ └── content-service/  # Port 3002 — create/fetch content, ownership validation
 
 libs/
- ├── contracts/        # Shared event types and interfaces
- └── common/           # Shared utilities
+ └── contracts/        # Shared event types (@app/contracts path alias)
+
+prisma/
+ └── schema.prisma     # User and Content models (no url= in datasource — Prisma v7)
+
+plan/
+ └── Phase-1.md        # Original MVP plan (complete)
 ```
 
 ## Tech Stack
 
 | Layer | Choice |
 |---|---|
-| Framework | NestJS (monorepo mode) |
+| Framework | NestJS 11 (monorepo mode) |
 | Language | TypeScript |
-| ORM | Prisma |
-| Database | PostgreSQL |
-| Auth | JWT (access + refresh tokens) |
+| ORM | Prisma v7 + `@prisma/adapter-pg` |
+| Database | PostgreSQL 16 |
+| Auth | JWT (access 15min + refresh 7d), bcrypt |
+| HTTP between services | `@nestjs/axios` (HttpService) |
 | Package Manager | pnpm |
 | Containerization | Docker Compose |
 | Caching (future) | Redis |
 
-## MVP Features to Build
+## Key Gotchas
 
-### Auth Service
-- User registration
-- Login with password hashing
-- JWT access token issuance
-- Refresh tokens
-- Emit `user.created` domain event
-
-### Content Service
-- Create content item
-- Fetch user content
-- Ownership validation
-- Authenticated access only
-
-### API Gateway
-- Route requests to services
-- Validate JWT tokens
-- Apply guards/middleware
-- Centralized API surface
-
-## Database Schema (Minimal)
-
-**Users**: `id (uuid)`, `email`, `password_hash`, `created_at`
-
-**Content**: `id (uuid)`, `title`, `body`, `owner_id`, `created_at`
-
-## Event Contracts
-
-Defined in `libs/contracts/events/`:
-
-```ts
-export const USER_CREATED_EVENT = 'user.created';
-
-export interface UserCreatedEvent {
-  userId: string;
-  email: string;
-  createdAt: Date;
-}
-```
-
-## Development Order (from plan)
-
-1. Convert to NestJS monorepo
-2. Setup shared `contracts` library
-3. Implement Auth Service
-4. Add JWT authentication
-5. Build API Gateway
-6. Connect Gateway → Auth Service
-7. Implement Content Service
-8. Protect content routes
-9. Complete Docker Compose setup (gateway, auth-service, content-service, postgres)
-
-## MVP Success Criteria
-
-- User registers through Gateway
-- User logs in and receives JWT
-- Authenticated user creates content
-- Content is tied to correct user
-- All services run via Docker Compose
-
-## Future Extensions (Post-MVP)
-
-- Notification Service (event listener)
-- Job Worker Service (queues)
-- Redis caching layer
-- Analytics service
-- RBAC permissions
-- Multi-tenancy
+- **Prisma v7** — `url` is no longer allowed in `prisma/schema.prisma`. The DB connection is passed via `PrismaPg` adapter in `PrismaService` constructor.
+- **`prisma generate` in Docker** — must run after `COPY . .` in the Dockerfile, before any TypeScript build or watch. Without it, `@prisma/client` exports nothing.
+- **Module resolution** — uses `"module": "commonjs"` (not `nodenext`). Changed during monorepo conversion for compatibility with path aliases.
+- **JWT `expiresIn`** — must be a number (seconds), not a string like `'15m'`, due to `@nestjs/jwt` v11 type constraints.
 
 ## Key Files
 
 | File | Purpose |
 |---|---|
-| `plan/Phase-1.md` | Full MVP plan and architecture spec |
-| `docker-compose.yml` | Docker service definitions |
-| `Dockerfile` | Dev image |
+| `nest-cli.json` | Monorepo config — all apps and libs registered here |
+| `tsconfig.json` | Root TS config — includes `@app/contracts` path alias |
+| `prisma/schema.prisma` | DB schema — User and Content models |
+| `docker-compose.yml` | All 4 services wired together |
+| `Dockerfile` | Dev image — includes `prisma generate` |
 | `Dockerfile.prod` | Multi-stage production image |
-| `src/main.ts` | App entry point (port 3000) |
+| `.env` | Local env vars (not committed) — see below |
+| `notes.md` | Plain-English project overview |
+| `nest-notes.md` | NestJS concepts explained with code examples |
+| `api-guide.md` | Postman guide for all endpoints |
+
+## Environment Variables (`.env`)
+
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/atlas?schema=public"
+JWT_ACCESS_SECRET="atlas-access-secret-change-in-production"
+JWT_REFRESH_SECRET="atlas-refresh-secret-change-in-production"
+GATEWAY_PORT=3000
+AUTH_SERVICE_PORT=3001
+CONTENT_SERVICE_PORT=3002
+AUTH_SERVICE_URL="http://localhost:3001"
+CONTENT_SERVICE_URL="http://localhost:3002"
+```
+
+Docker Compose overrides `AUTH_SERVICE_URL`, `CONTENT_SERVICE_URL`, and `DATABASE_URL` to use container names internally.
+
+## API Endpoints (all via Gateway on port 3000)
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/auth/register` | No | Register, returns token pair |
+| POST | `/auth/login` | No | Login, returns token pair |
+| POST | `/auth/refresh` | No | Swap refresh token for new pair |
+| POST | `/content` | Bearer token | Create content item |
+| GET | `/content` | Bearer token | List own content |
+| GET | `/content/:id` | Bearer token | Get one content item |
 
 ## Commands
 
 ```bash
-pnpm install          # Install dependencies
-pnpm run start:dev    # Dev server with watch mode
-pnpm run build        # Build
-pnpm run test         # Unit tests
-pnpm run test:e2e     # E2E tests
-pnpm run lint         # Lint + fix
+# Docker (recommended)
+docker compose up                        # start all services
+docker compose build --no-cache          # rebuild images (after Dockerfile changes)
+docker compose down                      # stop all services
+
+# Database
+npx prisma migrate dev                   # run migrations (first time)
+npx prisma generate                      # regenerate client after schema changes
+
+# Local dev (individual services)
+pnpm run start:gateway                   # gateway on port 3000
+pnpm run start:auth                      # auth-service on port 3001
+pnpm run start:content                   # content-service on port 3002
+
+# Build
+pnpm run build:gateway
+pnpm run build:auth
+pnpm run build:content
+
+# Test & lint
+pnpm test
+pnpm run lint
 ```
+
+## Future Extensions (Post-MVP)
+
+- Notification Service — listens for `user.created` event, sends welcome emails
+- Job Worker Service — background queues
+- Redis caching layer
+- RBAC permissions
+- Multi-tenancy
