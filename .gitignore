@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Git worktrees
+.worktrees
+
 # temp directory
 .temp
 .tmp
