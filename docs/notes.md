@@ -43,8 +43,8 @@ Every request from the outside world goes through the **Gateway first**. The Gat
 
 Every API call from a client (mobile app, browser, etc.) hits the Gateway first. It does two things:
 
-- **Routes requests** — forwards `/auth/...` calls to the Auth Service and `/content/...` calls to the Content Service.
-- **Checks identity** — for content routes, it verifies the user's JWT token before forwarding. If the token is missing or fake, the request is rejected here and never reaches the other services.
+- **Routes requests** — forwards `/auth/...` calls to the Auth Service and `/content/...` calls to the Content Service. Also serves `/dummy/...` routes publicly without any auth check.
+- **Checks identity** — for content routes, it verifies the user's JWT token before forwarding. If the token is missing or fake, the request is rejected here and never reaches the other services. Dummy and auth routes are intentionally exempt.
 
 The Gateway does not have its own database. It is purely a traffic director.
 
@@ -53,6 +53,7 @@ Key files:
 - `apps/gateway/src/auth/jwt-auth.guard.ts` — the actual "bouncer" that blocks unauthenticated requests
 - `apps/gateway/src/auth/auth-proxy.service.ts` — forwards login/register calls to the Auth Service
 - `apps/gateway/src/content/content-proxy.service.ts` — forwards content calls to the Content Service, passing the verified user ID along
+- `apps/gateway/src/dummy/dummy-proxy.controller.ts` — serves `/dummy/blogs` and `/dummy/users` with no guard (fully public)
 
 ---
 
@@ -91,10 +92,12 @@ What it does:
 - **Create content** — saves a new item (title + body) and records who owns it.
 - **List my content** — returns all items belonging to the current user.
 - **Get one item** — returns a specific item, but only if the current user owns it (ownership validation).
+- **Dummy data** — serves hardcoded blogs and fake users at `/dummy/blogs` and `/dummy/users` with no auth required. Useful for quickly testing an HTTP client without needing an account.
 
 Key files:
 - `apps/content-service/src/content/content.service.ts` — the logic for creating, listing, and fetching content with ownership checks
 - `apps/content-service/src/content/content.controller.ts` — receives HTTP requests and calls the service; rejects any request that does not include a user ID
+- `apps/content-service/src/dummy/dummy.service.ts` — returns hardcoded blogs and fake users; no database involved
 
 ---
 
@@ -155,6 +158,16 @@ The `owner_id` column is how the system enforces ownership — you can only read
 4. Auth Service hashes the password and saves the user to the database
 5. Auth Service returns: { accessToken, refreshToken }
 6. Gateway passes the response back to the client
+```
+
+### Fetching Dummy Data (no auth)
+
+```
+1. Client sends:  GET /dummy/blogs
+2. Gateway receives it — no JWT check, route is fully public
+3. Gateway forwards to Content Service: GET /dummy/blogs
+4. Content Service DummyService returns 5 hardcoded blog objects
+5. Gateway passes the response back to the client
 ```
 
 ### Creating Content (authenticated)

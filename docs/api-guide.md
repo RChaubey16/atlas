@@ -16,6 +16,63 @@ All requests go through the **Gateway** only. Never call auth-service or content
 
 ---
 
+## Dummy Endpoints
+
+These endpoints are **fully public** — no account, no token, no setup required. Use them to quickly test your HTTP client or verify the API is reachable.
+
+---
+
+### 1. Get Dummy Blogs
+
+Returns 5 hardcoded blog entries.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/dummy/blogs` |
+| **Auth** | None |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "id": "1",
+    "title": "Getting Started with NestJS",
+    "body": "NestJS is a progressive Node.js framework...",
+    "author": "Jane Doe",
+    "createdAt": "2026-01-15T10:00:00.000Z"
+  }
+]
+```
+
+---
+
+### 2. Get Dummy Users
+
+Returns 5 hardcoded fake user entries.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/dummy/users` |
+| **Auth** | None |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "id": "1",
+    "name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "avatarUrl": "https://i.pravatar.cc/150?img=1"
+  }
+]
+```
+
+---
+
 ## Auth Endpoints
 
 These endpoints do **not** require a token. Anyone can call them.
@@ -301,6 +358,12 @@ Returns one content item by its ID. Only works if the item belongs to the authen
 
 Follow this order to test the entire system end to end:
 
+**Step 0 — Verify the API is up (no auth needed)**
+```
+GET /dummy/blogs
+```
+If you get back a JSON array of 5 blogs, the stack is running correctly.
+
 **Step 1 — Register**
 ```
 POST /auth/register
@@ -342,6 +405,8 @@ Use the new `accessToken` for subsequent requests.
 
 | Endpoint | Method | Auth Required | Purpose |
 |---|---|---|---|
+| `/dummy/blogs` | GET | No | 5 hardcoded blogs for testing |
+| `/dummy/users` | GET | No | 5 hardcoded fake users for testing |
 | `/auth/register` | POST | No | Create account, get tokens |
 | `/auth/login` | POST | No | Login, get tokens |
 | `/auth/refresh` | POST | No | Swap refresh token for new tokens |

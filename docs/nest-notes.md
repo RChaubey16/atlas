@@ -46,7 +46,7 @@ A **Module** is a logical grouping of related code. Every NestJS application has
 ```ts
 // apps/gateway/src/app.module.ts
 @Module({
-  imports: [AuthModule, ContentModule],
+  imports: [AuthModule, ContentModule, DummyModule],
 })
 export class AppModule {}
 ```
@@ -276,6 +276,8 @@ export class ContentProxyController {
 - A single method — protects only that route
 - A class — protects all routes in the controller
 - Globally (in `main.ts`) — protects every route in the entire application
+
+**Intentionally public routes** omit `@UseGuards` entirely. In this project, `DummyProxyController` has no guard — it is meant to be reachable without a token. This is a deliberate design choice, not an oversight. The absence of `@UseGuards` is itself the declaration that a route is public.
 
 ---
 
@@ -620,7 +622,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Route handling | `@Get()`, `@Post()` | All controllers |
 | Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
-| Guard | `@UseGuards()` + `AuthGuard` | Gateway content controller |
+| Guard | `@UseGuards()` + `AuthGuard` | Gateway content controller (dummy controller intentionally has none) |
 | Strategy (Passport) | `PassportStrategy` | Both JWT strategy files |
 | Validation Pipe | `ValidationPipe` | All three `main.ts` files |
 | DTO + class-validator | `@IsEmail()`, `@IsString()`, etc. | All `dto/` files |
