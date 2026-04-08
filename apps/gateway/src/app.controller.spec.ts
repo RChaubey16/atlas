@@ -16,7 +16,11 @@ describe('AppController', () => {
 
   describe('root', () => {
     it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+      expect(appController.getHello()).toEqual({
+        message: 'Welcome to Atlas',
+        version: '1.0.0',
+        docs: '/auth and /content',
+      });
     });
   });
 });
