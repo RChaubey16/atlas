@@ -550,7 +550,129 @@ This is configured in `tsconfig.json`:
 
 ---
 
-## 14. NestFactory — Bootstrapping the Application
+## 14. NestJS Microservices — Event-Driven Services
+
+**Files:** `apps/notification-service/src/main.ts`, `apps/notification-service/src/notification/notification.service.ts`, `apps/auth-service/src/auth/auth.module.ts`, `apps/auth-service/src/auth/auth.service.ts`
+
+NestJS supports running services as **microservices** — processes that communicate not via HTTP but via a message broker (in this project, RabbitMQ). A microservice has no HTTP port; it connects to a queue and waits for messages.
+
+### Bootstrapping a Microservice
+
+Instead of `NestFactory.create()`, you use `NestFactory.createMicroservice()`:
+
+```ts
+// apps/notification-service/src/main.ts
+async function bootstrap() {
+  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+    NotificationModule,
+    {
+      transport: Transport.RMQ,          // use RabbitMQ
+      options: {
+        urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
+        queue: 'notification_queue',
+        queueOptions: { durable: true }, // queue survives RabbitMQ restarts
+      },
+    },
+  );
+  await app.listen();  // connects to RabbitMQ and starts consuming messages
+}
+```
+
+`app.listen()` here does not open an HTTP port — it connects to the queue and blocks, waiting for messages.
+
+### Consuming Events — `@EventPattern` and `@Payload`
+
+On the consumer side, you mark a method with `@EventPattern()` to tell NestJS: "call this method whenever a message with this event name arrives."
+
+```ts
+// apps/notification-service/src/notification/notification.service.ts
+@Injectable()
+export class NotificationService {
+  constructor(private readonly emailService: EmailService) {}
+
+  @EventPattern(USER_CREATED_EVENT)          // listen for 'user.created' messages
+  async handleUserCreated(
+    @Payload() event: UserCreatedEvent,      // @Payload() extracts the message body
+  ): Promise<void> {
+    await this.emailService.sendMail(event.email, new WelcomeEmailTemplate());
+  }
+}
+```
+
+`@EventPattern` is the microservice equivalent of `@Post()` — it registers a handler for a specific message type.
+
+`@Payload()` is the microservice equivalent of `@Body()` — it extracts the data from the incoming message.
+
+### Publishing Events — `ClientProxy` and `ClientsModule`
+
+On the publisher side (auth-service), you register a **client** that knows how to send messages to the queue:
+
+```ts
+// apps/auth-service/src/auth/auth.module.ts
+@Module({
+  imports: [
+    ClientsModule.register([
+      {
+        name: 'NOTIFICATION_SERVICE',          // injection token
+        transport: Transport.RMQ,
+        options: {
+          urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
+          queue: 'notification_queue',
+          queueOptions: { durable: true },
+        },
+      },
+    ]),
+  ],
+  ...
+})
+export class AuthModule {}
+```
+
+`ClientsModule.register()` creates a `ClientProxy` and registers it in the DI container under the token `'NOTIFICATION_SERVICE'`. You inject it with `@Inject()`:
+
+```ts
+// apps/auth-service/src/auth/auth.service.ts
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    @Inject('NOTIFICATION_SERVICE') private readonly notificationClient: ClientProxy,
+    //       ↑ string token, so @Inject() is needed instead of the automatic type-based injection
+  ) {}
+
+  async register(dto: RegisterDto): Promise<TokenPair> {
+    // ... save user ...
+
+    // Fire-and-forget: emit() returns an Observable but we don't subscribe.
+    // RabbitMQ transport buffers the message; no subscription needed for delivery.
+    this.notificationClient.emit(USER_CREATED_EVENT, event);
+
+    return this.issueTokens(user.id, user.email);
+  }
+}
+```
+
+`emit()` is fire-and-forget — it sends the message and returns immediately. The HTTP response is not delayed waiting for the email to be sent.
+
+### Why String Tokens?
+
+Normally NestJS injects by type — `private readonly jwtService: JwtService` works automatically because TypeScript knows the type. String tokens (`'NOTIFICATION_SERVICE'`) are used when the same type (`ClientProxy`) could refer to different clients (e.g., one for notifications, one for analytics). The `@Inject('...')` decorator tells NestJS which specific client to use.
+
+### HTTP Service vs Microservice
+
+| | HTTP Service (gateway, auth, content) | Microservice (notification) |
+|---|---|---|
+| Bootstrap | `NestFactory.create()` | `NestFactory.createMicroservice()` |
+| Transport | HTTP (port) | RabbitMQ (queue) |
+| Receives | HTTP requests | Queue messages |
+| Route handler | `@Get()`, `@Post()` | `@EventPattern()` |
+| Data extraction | `@Body()`, `@Param()` | `@Payload()` |
+| Response | Returns data to caller | Acknowledges message |
+
+---
+
+## 15. NestFactory — Bootstrapping the Application (HTTP Services)
 
 **File:** `apps/auth-service/src/main.ts`
 
@@ -574,7 +696,7 @@ bootstrap();
 
 ---
 
-## 15. How All the Concepts Connect — Full Picture
+## 16. How All the Concepts Connect — Full Picture
 
 Here is how a `POST /auth/register` request flows through all these NestJS concepts:
 
@@ -619,16 +741,19 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Module | `@Module()` | Every `*.module.ts` file |
 | Controller | `@Controller()` | Every `*.controller.ts` file |
 | Service / Provider | `@Injectable()` | Every `*.service.ts`, strategies, PrismaService |
-| Route handling | `@Get()`, `@Post()` | All controllers |
-| Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All controllers |
+| Route handling | `@Get()`, `@Post()` | All HTTP controllers |
+| Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
 | Guard | `@UseGuards()` + `AuthGuard` | Gateway content controller (dummy controller intentionally has none) |
 | Strategy (Passport) | `PassportStrategy` | Both JWT strategy files |
-| Validation Pipe | `ValidationPipe` | All three `main.ts` files |
+| Validation Pipe | `ValidationPipe` | All HTTP `main.ts` files |
 | DTO + class-validator | `@IsEmail()`, `@IsString()`, etc. | All `dto/` files |
 | HTTP exceptions | `UnauthorizedException`, `NotFoundException`, etc. | Auth and content services |
 | HTTP client | `HttpModule` + `HttpService` | Gateway proxy services |
 | JWT | `JwtModule` + `JwtService` | Auth service |
 | Lifecycle hooks | `OnModuleInit`, `OnModuleDestroy` | PrismaService |
 | Monorepo | `nest-cli.json` | Root config |
-| Application bootstrap | `NestFactory.create()` | All three `main.ts` files |
+| HTTP bootstrap | `NestFactory.create()` | Gateway, auth, content `main.ts` |
+| Microservice bootstrap | `NestFactory.createMicroservice()` | Notification service `main.ts` |
+| Event consumer | `@EventPattern()`, `@Payload()` | `NotificationService.handleUserCreated` |
+| Event publisher | `ClientsModule`, `ClientProxy`, `.emit()` | Auth service module + service |

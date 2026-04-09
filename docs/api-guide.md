@@ -81,7 +81,7 @@ These endpoints do **not** require a token. Anyone can call them.
 
 ### 1. Register
 
-Creates a new user account and returns tokens immediately.
+Creates a new user account and returns tokens immediately. A welcome email is sent asynchronously via the Notification Service — this happens in the background and does not delay the response.
 
 | | |
 |---|---|
@@ -369,7 +369,7 @@ If you get back a JSON array of 5 blogs, the stack is running correctly.
 POST /auth/register
 Body: { "email": "test@example.com", "password": "password123" }
 ```
-Copy the `accessToken` and `refreshToken` from the response.
+Copy the `accessToken` and `refreshToken` from the response. A welcome email will be sent to the address you registered with (requires SMTP env vars to be configured).
 
 **Step 2 — Create some content**
 ```

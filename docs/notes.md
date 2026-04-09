@@ -29,13 +29,17 @@ You (the user / app)
    └──────┬──────┘
           ▼
      [ PostgreSQL ]      ← The database where everything is saved
+
+[Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ] --> SMTP email
 ```
 
 Every request from the outside world goes through the **Gateway first**. The Gateway decides where to send it and, for protected routes, checks that the user has a valid pass (JWT token) before letting them through.
 
+When a user registers, the Auth Service publishes a `user.created` event to **RabbitMQ**. The Notification Service listens for this event in the background and sends a welcome email via SMTP — completely decoupled from the HTTP request.
+
 ---
 
-## The Three Services
+## The Services
 
 ### 1. API Gateway (`apps/gateway/`) — Port 3000
 
@@ -101,16 +105,40 @@ Key files:
 
 ---
 
+### 4. Notification Service (`apps/notification-service/`) — No HTTP port
+
+**Listens for events from RabbitMQ and sends transactional emails.**
+
+Unlike the other services, the Notification Service is not an HTTP server — it is a **NestJS microservice** that connects directly to RabbitMQ and waits for messages. It never receives requests from the Gateway or any HTTP client.
+
+When the Auth Service publishes a `user.created` event after a successful registration, the Notification Service receives that message and sends a welcome email to the new user via Nodemailer SMTP.
+
+This pattern is called **event-driven architecture**: services communicate by publishing and consuming events rather than making direct HTTP calls. The Auth Service does not know or care whether the Notification Service exists — it just fires an event and moves on.
+
+What it does:
+
+- **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup.
+- **Send welcome email** — on each event, calls the SMTP transport with a pre-defined `WelcomeEmailTemplate`.
+- **Fail gracefully** — SMTP errors are caught and logged; the message is acknowledged so the queue is not blocked.
+
+Key files:
+- `apps/notification-service/src/notification/notification.service.ts` — the `@EventPattern` handler that receives the event and delegates to EmailService
+- `apps/notification-service/src/email/email.service.ts` — wraps Nodemailer; reads SMTP config from environment variables
+- `apps/notification-service/src/email/templates/welcome.template.ts` — the HTML email template; implements the `EmailTemplate` interface
+- `apps/notification-service/src/email/email-template.interface.ts` — the interface; adding a new email type means adding a new class that implements this
+
+---
+
 ## Shared Code (`libs/contracts/`)
 
 Services need to agree on what data looks like when they talk to each other. This library holds those shared definitions.
 
 **`libs/contracts/src/events/user-created.event.ts`**
 
-When a user registers, the Auth Service could notify other services (e.g., a future notification service that sends a welcome email). The contract defines what that notification looks like:
+When a user registers, the Auth Service publishes a `user.created` event to RabbitMQ. The Notification Service listens for this event and sends a welcome email. Both services import this shared contract so they agree on the exact shape of the message:
 
 ```ts
-// Every service that listens for "a user was created" expects this shape
+// Every service that produces or consumes "user.created" uses this shape
 export interface UserCreatedEvent {
   userId: string;
   email: string;
@@ -118,7 +146,7 @@ export interface UserCreatedEvent {
 }
 ```
 
-Right now the event is logged to the console. In the future it can be wired to a message broker (like RabbitMQ or Kafka) without changing any service logic — just the plumbing.
+Having the contract in a shared library means neither service needs to know anything about the other — they only need to agree on the message shape. A third service (e.g., an analytics service) could listen to the same event without any changes to the Auth Service or Notification Service.
 
 ---
 
@@ -156,8 +184,13 @@ The `owner_id` column is how the system enforces ownership — you can only read
 2. Gateway receives it, no auth check needed, forwards to Auth Service
 3. Auth Service checks the email is not already taken
 4. Auth Service hashes the password and saves the user to the database
-5. Auth Service returns: { accessToken, refreshToken }
-6. Gateway passes the response back to the client
+5. Auth Service publishes user.created event to RabbitMQ (fire-and-forget)
+6. Auth Service returns: { accessToken, refreshToken }
+7. Gateway passes the response back to the client
+
+Meanwhile, asynchronously:
+8. Notification Service receives the user.created event from RabbitMQ
+9. Notification Service sends a welcome email to the new user via SMTP
 ```
 
 ### Fetching Dummy Data (no auth)
@@ -201,6 +234,7 @@ Services will be available at:
 - Gateway (your entry point): `http://localhost:3000`
 - Auth Service (internal): `http://localhost:3001`
 - Content Service (internal): `http://localhost:3002`
+- RabbitMQ management UI: `http://localhost:15672` (guest / guest — local dev only)
 
 ---
 
@@ -213,6 +247,12 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | `DATABASE_URL` | How to connect to PostgreSQL |
 | `JWT_ACCESS_SECRET` | Secret key used to sign access tokens (keep this private) |
 | `JWT_REFRESH_SECRET` | Secret key used to sign refresh tokens (keep this private) |
+| `RABBITMQ_URL` | Connection URL for RabbitMQ (e.g. `amqp://localhost:5672`) |
+| `SMTP_HOST` | SMTP server hostname (e.g. `smtp.gmail.com`) |
+| `SMTP_PORT` | SMTP server port (e.g. `587`) |
+| `SMTP_USER` | SMTP login username |
+| `SMTP_PASS` | SMTP login password (use an App Password for Gmail) |
+| `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@example.com>`) |
 
 ---
 
@@ -226,6 +266,8 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | **PostgreSQL** | The database where all data is permanently stored |
 | **JWT** | The token system used for authentication |
 | **bcrypt** | The algorithm used to safely scramble passwords |
+| **RabbitMQ** | The message broker that passes events between services |
+| **Nodemailer** | Sends emails via SMTP from the Notification Service |
 | **Docker** | Packages everything into containers so it runs the same everywhere |
 | **pnpm** | The package manager — installs all the dependencies |
 
@@ -235,7 +277,7 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 
 The architecture is designed so these can be added without changing any existing service:
 
-- **Notification Service** — listens for `user.created` events and sends welcome emails
 - **Job Worker** — handles background tasks and queues
 - **Redis caching** — speeds up frequent database reads
 - **RBAC** — role-based permissions (admin, editor, viewer)
+- **URL Shortener Service** — creates and resolves short links with expiry and click analytics
