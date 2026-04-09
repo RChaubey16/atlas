@@ -495,7 +495,7 @@ async function bootstrap() {
     {
       transport: Transport.RMQ,
       options: {
-        urls: [process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672'],
+        urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
         queue: 'notification_queue',
         queueOptions: { durable: true },
         socketOptions: { heartbeatIntervalInSeconds: 5 },
@@ -661,7 +661,7 @@ import { PrismaService } from '../prisma/prisma.service';
         name: 'NOTIFICATION_SERVICE',
         transport: Transport.RMQ,
         options: {
-          urls: [process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672'],
+          urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
           queue: 'notification_queue',
           queueOptions: { durable: true },
         },
@@ -813,9 +813,9 @@ services:
     image: postgres:16-alpine
     container_name: atlas-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: atlas
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -868,10 +868,10 @@ services:
     command: pnpm run start:auth
     environment:
       AUTH_SERVICE_PORT: 3001
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
+      RABBITMQ_URL: ${RABBITMQ_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -889,7 +889,7 @@ services:
     command: pnpm run start:content
     environment:
       CONTENT_SERVICE_PORT: 3002
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
+      DATABASE_URL: ${DATABASE_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -902,7 +902,7 @@ services:
       - /app/node_modules
     command: pnpm run start:notification
     environment:
-      RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
+      RABBITMQ_URL: ${RABBITMQ_URL}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_USER: ${SMTP_USER}
@@ -922,14 +922,14 @@ Append to your local `.env` file (this file is not committed):
 
 ```env
 # RabbitMQ
-RABBITMQ_URL="amqp://guest:guest@localhost:5672"
+RABBITMQ_URL="amqp://<user>:<password>@localhost:5672"
 
 # SMTP (notification-service)
 SMTP_HOST="smtp.gmail.com"
 SMTP_PORT=587
-SMTP_USER="your@gmail.com"
-SMTP_PASS="your-app-password"
-SMTP_FROM="Atlas <your@gmail.com>"
+SMTP_USER="<your-smtp-user>"
+SMTP_PASS="<your-app-password>"
+SMTP_FROM="Atlas <<your-email>>"
 ```
 
 > **Note for Gmail:** Use an App Password (Google Account → Security → 2-Step Verification → App Passwords), not your account password.
