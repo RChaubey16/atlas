@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { EmailTemplate } from './email-template.interface';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private readonly transporter: nodemailer.Transporter;
 
   constructor() {
@@ -25,9 +26,9 @@ export class EmailService {
         subject: template.subject,
         html: template.html({ email: to }),
       });
-      console.log(`[Email] Sent "${template.subject}" to ${to}`);
+      this.logger.log(`[Email] Sent "${template.subject}" to ${to}`);
     } catch (error) {
-      console.error(`[Email] Failed to send to ${to}:`, error);
+      this.logger.error(`[Email] Failed to send to ${to}:`, error);
     }
   }
 }
