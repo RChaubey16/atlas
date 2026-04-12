@@ -2,8 +2,10 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  Inject,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ClientProxy } from '@nestjs/microservices';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
@@ -20,6 +22,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    @Inject('NOTIFICATION_SERVICE')
+    private readonly notificationClient: ClientProxy,
   ) {}
 
   async register(dto: RegisterDto): Promise<TokenPair> {
@@ -27,7 +31,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (existing) {
-      throw new ConflictException('Email already in use');
+      throw new ConflictException('Email already in use.');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -35,13 +39,12 @@ export class AuthService {
       data: { email: dto.email, passwordHash },
     });
 
-    // Publish user.created event contract (log for now; wire to broker later)
     const event: UserCreatedEvent = {
       userId: user.id,
       email: user.email,
       createdAt: user.createdAt,
     };
-    console.log(`[Event] ${USER_CREATED_EVENT}`, event);
+    this.notificationClient.emit(USER_CREATED_EVENT, event);
 
     return this.issueTokens(user.id, user.email);
   }
@@ -62,7 +65,7 @@ export class AuthService {
     return this.issueTokens(user.id, user.email);
   }
 
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  refresh(refreshToken: string): TokenPair {
     try {
       const payload = this.jwtService.verify<{ sub: string; email: string }>(
         refreshToken,
@@ -78,11 +81,11 @@ export class AuthService {
     const payload = { sub: userId, email };
     const accessToken = this.jwtService.sign(payload, {
       secret: process.env.JWT_ACCESS_SECRET,
-      expiresIn: 60 * 15, // 15 minutes
+      expiresIn: 60 * 15,
     });
     const refreshToken = this.jwtService.sign(payload, {
       secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: 60 * 60 * 24 * 7, // 7 days
+      expiresIn: 60 * 60 * 24 * 7,
     });
     return { accessToken, refreshToken };
   }

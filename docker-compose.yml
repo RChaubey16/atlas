@@ -18,6 +18,18 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: atlas-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   gateway:
     build: .
     container_name: atlas-gateway
@@ -51,8 +63,11 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   content-service:
@@ -69,6 +84,24 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
     depends_on:
       postgres:
+        condition: service_healthy
+
+  notification-service:
+    build: .
+    container_name: atlas-notification-service
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: pnpm run start:notification
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+    depends_on:
+      rabbitmq:
         condition: service_healthy
 
 volumes:
