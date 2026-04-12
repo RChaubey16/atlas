@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { EmailService } from './email.service';
 import * as nodemailer from 'nodemailer';
+
+import { EmailService } from './email.service';
 import { WelcomeEmailTemplate } from './templates/welcome.template';
 
 jest.mock('nodemailer');
@@ -43,6 +44,8 @@ describe('EmailService', () => {
     mockSendMail.mockRejectedValue(new Error('SMTP connection refused'));
     const template = new WelcomeEmailTemplate();
 
-    await expect(service.sendMail('user@example.com', template)).resolves.not.toThrow();
+    await expect(
+      service.sendMail('user@example.com', template),
+    ).resolves.not.toThrow();
   });
 });

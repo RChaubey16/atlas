@@ -9,18 +9,18 @@ export class ContentProxyService {
 
   constructor(private readonly http: HttpService) {}
 
-  async createContent(body: unknown, userId: string) {
+  async createContent(body: unknown, userId: string): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.post(`${this.contentUrl}/content`, body, {
+      this.http.post<unknown>(`${this.contentUrl}/content`, body, {
         headers: { 'x-user-id': userId },
       }),
     );
     return data;
   }
 
-  async getMyContent(userId: string) {
+  async getMyContent(userId: string): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.get(`${this.contentUrl}/content`, {
+      this.http.get<unknown>(`${this.contentUrl}/content`, {
         headers: { 'x-user-id': userId },
       }),
     );

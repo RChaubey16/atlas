@@ -1,7 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { NotificationService } from './notification.service';
-import { EmailService } from '../email/email.service';
 import { UserCreatedEvent } from '@app/contracts';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { EmailService } from '../email/email.service';
+import { NotificationService } from './notification.service';
 
 describe('NotificationService', () => {
   let service: NotificationService;

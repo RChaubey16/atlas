@@ -9,16 +9,16 @@ export class DummyProxyService {
 
   constructor(private readonly http: HttpService) {}
 
-  async getBlogs() {
+  async getBlogs(): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.get(`${this.contentUrl}/dummy/blogs`),
+      this.http.get<unknown>(`${this.contentUrl}/dummy/blogs`),
     );
     return data;
   }
 
-  async getUsers() {
+  async getUsers(): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.get(`${this.contentUrl}/dummy/users`),
+      this.http.get<unknown>(`${this.contentUrl}/dummy/users`),
     );
     return data;
   }

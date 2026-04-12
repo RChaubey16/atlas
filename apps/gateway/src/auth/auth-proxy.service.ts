@@ -4,27 +4,28 @@ import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class AuthProxyService {
-  private readonly authUrl = process.env.AUTH_SERVICE_URL ?? 'http://localhost:3001';
+  private readonly authUrl =
+    process.env.AUTH_SERVICE_URL ?? 'http://localhost:3001';
 
   constructor(private readonly http: HttpService) {}
 
-  async register(body: unknown) {
+  async register(body: unknown): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.post(`${this.authUrl}/auth/register`, body),
+      this.http.post<unknown>(`${this.authUrl}/auth/register`, body),
     );
     return data;
   }
 
-  async login(body: unknown) {
+  async login(body: unknown): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.post(`${this.authUrl}/auth/login`, body),
+      this.http.post<unknown>(`${this.authUrl}/auth/login`, body),
     );
     return data;
   }
 
-  async refresh(body: unknown) {
+  async refresh(body: unknown): Promise<unknown> {
     const { data } = await firstValueFrom(
-      this.http.post(`${this.authUrl}/auth/refresh`, body),
+      this.http.post<unknown>(`${this.authUrl}/auth/refresh`, body),
     );
     return data;
   }

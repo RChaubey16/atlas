@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+
 import { NotificationModule } from './notification.module';
 
 async function bootstrap() {
@@ -18,4 +19,4 @@ async function bootstrap() {
   await app.listen();
   console.log('[Notification Service] Listening on notification_queue');
 }
-bootstrap();
+void bootstrap();

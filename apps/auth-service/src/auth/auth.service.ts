@@ -22,7 +22,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    @Inject('NOTIFICATION_SERVICE') private readonly notificationClient: ClientProxy,
+    @Inject('NOTIFICATION_SERVICE')
+    private readonly notificationClient: ClientProxy,
   ) {}
 
   async register(dto: RegisterDto): Promise<TokenPair> {
@@ -64,7 +65,7 @@ export class AuthService {
     return this.issueTokens(user.id, user.email);
   }
 
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  refresh(refreshToken: string): TokenPair {
     try {
       const payload = this.jwtService.verify<{ sub: string; email: string }>(
         refreshToken,

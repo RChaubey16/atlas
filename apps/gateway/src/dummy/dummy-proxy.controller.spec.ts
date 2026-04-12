@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+
 import { DummyProxyController } from './dummy-proxy.controller';
 import { DummyProxyService } from './dummy-proxy.service';
 
@@ -6,8 +7,23 @@ describe('DummyProxyController', () => {
   let controller: DummyProxyController;
   let service: DummyProxyService;
 
-  const mockBlogs = [{ id: '1', title: 'Test Blog', body: 'Body', author: 'Author', createdAt: '2026-01-01T00:00:00.000Z' }];
-  const mockUsers = [{ id: '1', name: 'Test User', email: 'test@example.com', avatarUrl: 'https://i.pravatar.cc/150?img=1' }];
+  const mockBlogs = [
+    {
+      id: '1',
+      title: 'Test Blog',
+      body: 'Body',
+      author: 'Author',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ];
+  const mockUsers = [
+    {
+      id: '1',
+      name: 'Test User',
+      email: 'test@example.com',
+      avatarUrl: 'https://i.pravatar.cc/150?img=1',
+    },
+  ];
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
