@@ -31,7 +31,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (existing) {
-      throw new ConflictException('Email already in use');
+      throw new ConflictException('Email already in use.');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
