@@ -12,7 +12,8 @@ RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
+COPY prisma ./prisma
+RUN npx prisma generate
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 EXPOSE 3002
 CMD ["node", "dist/apps/content-service/main.js"]
