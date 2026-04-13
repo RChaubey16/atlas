@@ -16,7 +16,7 @@ export class EmailService {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
-    });
+    } as nodemailer.TransportOptions);
   }
 
   async sendMail(to: string, template: EmailTemplate): Promise<void> {
