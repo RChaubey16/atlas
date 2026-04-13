@@ -57,7 +57,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: pnpm run start:auth
+    command: sh -c "npx prisma migrate deploy && pnpm run start:auth"
     environment:
       AUTH_SERVICE_PORT: 3001
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
