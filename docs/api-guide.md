@@ -369,7 +369,7 @@ If you get back a JSON array of 5 blogs, the stack is running correctly.
 POST /auth/register
 Body: { "email": "test@example.com", "password": "password123" }
 ```
-Copy the `accessToken` and `refreshToken` from the response. A welcome email will be sent to the address you registered with (requires SMTP env vars to be configured).
+Copy the `accessToken` and `refreshToken` from the response. A welcome email will be sent to the address you registered with (requires `RESEND_API_KEY` to be configured).
 
 **Step 2 — Create some content**
 ```

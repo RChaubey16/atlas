@@ -4,7 +4,7 @@
 
 **Atlas** is a NestJS microservices backend portfolio project demonstrating service boundaries, API Gateway pattern, event contracts, and clean NestJS modular design.
 
-## Current State (as of 2026-04-09)
+## Current State (as of 2026-04-13)
 
 Phase 1 MVP and Notification Service are **complete and merged to `main`**.
 
@@ -12,7 +12,7 @@ Phase 1 MVP and Notification Service are **complete and merged to `main`**.
 - Full auth flow: register, login, refresh tokens (JWT + bcrypt)
 - Content CRUD with ownership validation
 - API Gateway proxying all traffic with JWT guard
-- Notification Service — RabbitMQ microservice that sends welcome emails on `user.created`
+- Notification Service — RabbitMQ microservice that sends welcome emails on `user.created` via Resend
 - Auth Service publishes `user.created` events to RabbitMQ via `ClientProxy`
 - Docker Compose running all 6 services (gateway, auth, content, postgres, rabbitmq, notification)
 - Prisma v7 with `@prisma/adapter-pg` (driver adapter required — no `url` in schema)
@@ -26,7 +26,7 @@ Client → API Gateway (port 3000) → Auth Service (port 3001)
                                          ↓
                                     PostgreSQL (port 5432)
 
-Auth Service --[user.created]--> RabbitMQ (port 5672) --> Notification Service --> SMTP
+Auth Service --[user.created]--> RabbitMQ (port 5672) --> Notification Service --> Resend API
 ```
 
 ## Monorepo Structure
@@ -59,7 +59,7 @@ plan/
 | Auth | JWT (access 15min + refresh 7d), bcrypt |
 | HTTP between services | `@nestjs/axios` (HttpService) |
 | Message broker | RabbitMQ + `@nestjs/microservices` (Transport.RMQ) |
-| Email | Nodemailer (SMTP) |
+| Email | Resend SDK (`resend` package) |
 | Package Manager | pnpm |
 | Containerization | Docker Compose |
 | Caching (future) | Redis |
@@ -73,6 +73,8 @@ plan/
 - **Notification Service has no HTTP port** — it bootstraps with `NestFactory.createMicroservice()`, not `NestFactory.create()`. It has no `listen(port)` call and cannot be reached via HTTP.
 - **`ClientProxy.emit()` is fire-and-forget** — returns an Observable that does not need to be subscribed. The RabbitMQ transport buffers the message. Do not `await` or `.subscribe()` unless you need delivery confirmation.
 - **RabbitMQ must be healthy before auth-service starts** — docker-compose `depends_on: rabbitmq: condition: service_healthy` ensures this. Locally, start RabbitMQ before running auth-service.
+- **`prisma migrate deploy` in Docker** — the auth-service container runs `npx prisma migrate deploy` before starting. This is the production-safe migration command (no prompts, no schema drift check).
+- **Gateway `PORT` env var** — `main.ts` reads `process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000`. Cloud platforms (Railway, Render, etc.) inject `PORT` automatically; local dev still uses `GATEWAY_PORT`.
 
 ## Key Files
 
@@ -102,17 +104,14 @@ AUTH_SERVICE_URL="http://localhost:3001"
 CONTENT_SERVICE_URL="http://localhost:3002"
 
 # RabbitMQ (notification-service + auth-service)
-RABBITMQ_URL="amqp://localhost:5672"
+RABBITMQ_URL="amqp://guest:guest@localhost:5672"
 
-# SMTP (notification-service)
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT=587
-SMTP_USER="<your-smtp-user>"
-SMTP_PASS="<your-app-password>"
-SMTP_FROM="Atlas <no-reply@example.com>"
+# Resend (notification-service)
+RESEND_API_KEY="<your-resend-api-key>"
+SMTP_FROM="Atlas <no-reply@yourdomain.com>"
 ```
 
-Docker Compose overrides `AUTH_SERVICE_URL`, `CONTENT_SERVICE_URL`, `DATABASE_URL`, and `RABBITMQ_URL` to use container names internally.
+Docker Compose overrides `AUTH_SERVICE_URL`, `CONTENT_SERVICE_URL`, `DATABASE_URL`, and `RABBITMQ_URL` to use container names internally. `RESEND_API_KEY` and `SMTP_FROM` are passed through from the host `.env`.
 
 ## API Endpoints (all via Gateway on port 3000)
 

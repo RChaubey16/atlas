@@ -30,7 +30,7 @@ You (the user / app)
           ▼
      [ PostgreSQL ]      ← The database where everything is saved
 
-[Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ] --> SMTP email
+[Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ] --> Resend API
 ```
 
 Every request from the outside world goes through the **Gateway first**. The Gateway decides where to send it and, for protected routes, checks that the user has a valid pass (JWT token) before letting them through.
@@ -111,19 +111,19 @@ Key files:
 
 Unlike the other services, the Notification Service is not an HTTP server — it is a **NestJS microservice** that connects directly to RabbitMQ and waits for messages. It never receives requests from the Gateway or any HTTP client.
 
-When the Auth Service publishes a `user.created` event after a successful registration, the Notification Service receives that message and sends a welcome email to the new user via Nodemailer SMTP.
+When the Auth Service publishes a `user.created` event after a successful registration, the Notification Service receives that message and sends a welcome email to the new user via the Resend API.
 
 This pattern is called **event-driven architecture**: services communicate by publishing and consuming events rather than making direct HTTP calls. The Auth Service does not know or care whether the Notification Service exists — it just fires an event and moves on.
 
 What it does:
 
 - **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup.
-- **Send welcome email** — on each event, calls the SMTP transport with a pre-defined `WelcomeEmailTemplate`.
-- **Fail gracefully** — SMTP errors are caught and logged; the message is acknowledged so the queue is not blocked.
+- **Send welcome email** — on each event, calls Resend with a pre-defined `WelcomeEmailTemplate`.
+- **Fail gracefully** — Resend errors are caught and logged; the message is acknowledged so the queue is not blocked.
 
 Key files:
 - `apps/notification-service/src/notification/notification.service.ts` — the `@EventPattern` handler that receives the event and delegates to EmailService
-- `apps/notification-service/src/email/email.service.ts` — wraps Nodemailer; reads SMTP config from environment variables
+- `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; reads `RESEND_API_KEY` and `SMTP_FROM` from environment variables
 - `apps/notification-service/src/email/templates/welcome.template.ts` — the HTML email template; implements the `EmailTemplate` interface
 - `apps/notification-service/src/email/email-template.interface.ts` — the interface; adding a new email type means adding a new class that implements this
 
@@ -190,7 +190,7 @@ The `owner_id` column is how the system enforces ownership — you can only read
 
 Meanwhile, asynchronously:
 8. Notification Service receives the user.created event from RabbitMQ
-9. Notification Service sends a welcome email to the new user via SMTP
+9. Notification Service sends a welcome email to the new user via Resend API
 ```
 
 ### Fetching Dummy Data (no auth)
@@ -247,12 +247,9 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | `DATABASE_URL` | How to connect to PostgreSQL |
 | `JWT_ACCESS_SECRET` | Secret key used to sign access tokens (keep this private) |
 | `JWT_REFRESH_SECRET` | Secret key used to sign refresh tokens (keep this private) |
-| `RABBITMQ_URL` | Connection URL for RabbitMQ (e.g. `amqp://localhost:5672`) |
-| `SMTP_HOST` | SMTP server hostname (e.g. `smtp.gmail.com`) |
-| `SMTP_PORT` | SMTP server port (e.g. `587`) |
-| `SMTP_USER` | SMTP login username |
-| `SMTP_PASS` | SMTP login password (use an App Password for Gmail) |
-| `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@example.com>`) |
+| `RABBITMQ_URL` | Connection URL for RabbitMQ (e.g. `amqp://guest:guest@localhost:5672`) |
+| `RESEND_API_KEY` | API key for the Resend email service |
+| `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@yourdomain.com>`) |
 
 ---
 
@@ -267,7 +264,7 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | **JWT** | The token system used for authentication |
 | **bcrypt** | The algorithm used to safely scramble passwords |
 | **RabbitMQ** | The message broker that passes events between services |
-| **Nodemailer** | Sends emails via SMTP from the Notification Service |
+| **Resend** | Sends transactional emails from the Notification Service via the Resend API |
 | **Docker** | Packages everything into containers so it runs the same everywhere |
 | **pnpm** | The package manager — installs all the dependencies |
 
