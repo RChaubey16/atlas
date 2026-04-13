@@ -1,0 +1,17 @@
+FROM node:20-alpine AS builder
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN npx prisma generate
+RUN pnpm run build:gateway
+
+FROM node:20-alpine
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
+COPY --from=builder /app/dist ./dist
+EXPOSE 3000
+CMD ["node", "dist/apps/gateway/main.js"]
