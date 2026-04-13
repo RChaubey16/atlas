@@ -95,10 +95,7 @@ services:
     command: pnpm run start:notification
     environment:
       RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASS: ${SMTP_PASS}
+      RESEND_API_KEY: ${RESEND_API_KEY}
       SMTP_FROM: ${SMTP_FROM}
     depends_on:
       rabbitmq:
