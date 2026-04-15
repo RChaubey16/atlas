@@ -16,11 +16,11 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
+    it('should return the welcome payload with docs link pointing to /docs', () => {
       expect(appController.getHello()).toEqual({
         message: 'Welcome to Atlas',
         version: '1.0.0',
-        docs: '/auth and /content',
+        docs: '/docs',
       });
     });
   });

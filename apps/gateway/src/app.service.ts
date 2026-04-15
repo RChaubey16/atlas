@@ -6,7 +6,7 @@ export class AppService {
     return {
       message: 'Welcome to Atlas',
       version: '1.0.0',
-      docs: '/auth and /content',
+      docs: '/docs',
     };
   }
 }
