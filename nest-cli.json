@@ -47,6 +47,15 @@
         "webpack": true
       }
     },
+    "url-shortener": {
+      "type": "application",
+      "root": "apps/url-shortener",
+      "entryFile": "main",
+      "sourceRoot": "apps/url-shortener/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/url-shortener/tsconfig.app.json"
+      }
+    },
     "contracts": {
       "type": "library",
       "root": "libs/contracts",
