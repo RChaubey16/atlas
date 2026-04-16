@@ -409,6 +409,7 @@ Common built-in exceptions:
 | `ForbiddenException` | 403 | Logged in but not allowed |
 | `NotFoundException` | 404 | Resource does not exist |
 | `ConflictException` | 409 | Duplicate data (e.g., email taken) |
+| `GoneException` | 410 | Resource existed but is no longer available (e.g., expired short link) |
 
 From the content service:
 ```ts
@@ -460,7 +461,108 @@ export class AuthModule {}
 
 ---
 
-## 12. JwtModule — Signing and Verifying Tokens
+## 12. ScheduleModule and `@Cron` — Recurring Background Jobs
+
+**Files:** `apps/url-shortener/src/links/cleanup.service.ts`, `apps/url-shortener/src/app.module.ts`
+
+`@nestjs/schedule` adds cron job support to NestJS. You enable it once in the root module and then annotate any service method with `@Cron()` to have NestJS call it on a schedule — no external process manager or OS cron needed.
+
+**Registering the scheduler (once, in AppModule):**
+```ts
+// apps/url-shortener/src/app.module.ts
+import { ScheduleModule } from '@nestjs/schedule';
+
+@Module({
+  imports: [ScheduleModule.forRoot(), LinksModule, RedirectModule],
+})
+export class AppModule {}
+```
+
+`ScheduleModule.forRoot()` boots the scheduler. It must be called in the root module so it is ready before any `@Cron` method fires.
+
+**Declaring a cron job:**
+```ts
+// apps/url-shortener/src/links/cleanup.service.ts
+import { Cron } from '@nestjs/schedule';
+
+@Injectable()
+export class CleanupService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @Cron('0 2 * * *')   // ← standard cron expression: "at 02:00 every day"
+  async deleteExpiredLinks(): Promise<void> {
+    await this.prisma.shortLink.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+  }
+}
+```
+
+`@Cron()` accepts a standard 5-field cron expression (`minute hour day month weekday`) or one of NestJS's named constants (`CronExpression.EVERY_DAY_AT_2AM`, etc.).
+
+The method is called automatically at the scheduled time. It does not need to be called anywhere else. NestJS handles registration and execution.
+
+**Cron expression cheat-sheet:**
+
+| Expression | When it runs |
+|---|---|
+| `'0 2 * * *'` | Every day at 2:00 AM |
+| `'*/5 * * * *'` | Every 5 minutes |
+| `'0 0 * * 0'` | Every Sunday at midnight |
+| `'0 9 1 * *'` | 9 AM on the 1st of every month |
+
+`CleanupService` must be listed as a provider in the module that provides `PrismaService`. It does not need to be exported — it runs silently in the background.
+
+---
+
+## 13. The `@Redirect()` Decorator — Issuing HTTP Redirects
+
+**File:** `apps/url-shortener/src/redirect/redirect.controller.ts`
+
+NestJS has a built-in `@Redirect()` decorator for controller methods that should respond with an HTTP redirect instead of a JSON body. When used without arguments, the method's return value controls the destination and status code.
+
+```ts
+// apps/url-shortener/src/redirect/redirect.controller.ts
+@Controller('s')
+export class RedirectController {
+  constructor(private readonly linksService: LinksService) {}
+
+  @Get(':slug')
+  @Redirect()           // ← tells NestJS: "the return value is a redirect, not JSON"
+  async redirect(@Param('slug') slug: string) {
+    const url = await this.linksService.resolveAndTrack(slug);
+    return { url, statusCode: 302 };
+    //       ↑ NestJS reads these two fields and issues the redirect automatically
+  }
+}
+```
+
+When `@Redirect()` is used without arguments, NestJS expects the method to return an object with:
+- `url` — the destination to redirect to
+- `statusCode` — the HTTP status code (302 = temporary redirect, 301 = permanent)
+
+If the method throws before returning (e.g. `NotFoundException` or `GoneException`), NestJS serves the error response instead — no redirect is issued.
+
+**At the gateway layer**, the redirect controller works differently because it needs full control of the raw Express response:
+
+```ts
+// apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts
+@Controller('s')
+export class UrlShortenerRedirectController {
+  @Get(':slug')
+  async redirect(@Param('slug') slug: string, @Res() res: Response) {
+    const targetUrl = await this.proxy.resolveSlug(slug);
+    return res.redirect(302, targetUrl);
+    //         ↑ Express's redirect method — used when @Res() is injected directly
+  }
+}
+```
+
+`@Res()` gives you the raw Express `Response` object. Using it opts the method out of NestJS's automatic response handling — you must call `res.redirect()` (or `res.json()`, etc.) yourself.
+
+---
+
+## 15. JwtModule — Signing and Verifying Tokens
 
 **File:** `apps/auth-service/src/auth/auth.module.ts`
 
@@ -499,7 +601,7 @@ const payload = this.jwtService.verify<{ sub: string; email: string }>(
 
 ---
 
-## 13. NestJS Monorepo — One Repo, Multiple Apps
+## 16. NestJS Monorepo — One Repo, Multiple Apps
 
 **File:** `nest-cli.json`
 
@@ -513,6 +615,7 @@ By default NestJS creates a single application. This project uses **monorepo mod
     "gateway":         { "type": "application", "root": "apps/gateway" },
     "auth-service":    { "type": "application", "root": "apps/auth-service" },
     "content-service": { "type": "application", "root": "apps/content-service" },
+    "url-shortener":   { "type": "application", "root": "apps/url-shortener" },
     "contracts":       { "type": "library",     "root": "libs/contracts" }
   }
 }
@@ -526,6 +629,7 @@ By default NestJS creates a single application. This project uses **monorepo mod
 ```bash
 nest build gateway          # compiles only the gateway
 nest build auth-service     # compiles only the auth service
+nest build url-shortener    # compiles only the url-shortener service
 ```
 
 **Path aliases for libraries:**
@@ -550,7 +654,7 @@ This is configured in `tsconfig.json`:
 
 ---
 
-## 14. NestJS Microservices — Event-Driven Services
+## 17. NestJS Microservices — Event-Driven Services
 
 **Files:** `apps/notification-service/src/main.ts`, `apps/notification-service/src/notification/notification.service.ts`, `apps/auth-service/src/auth/auth.module.ts`, `apps/auth-service/src/auth/auth.service.ts`
 
@@ -672,7 +776,7 @@ Normally NestJS injects by type — `private readonly jwtService: JwtService` wo
 
 ---
 
-## 15. NestFactory — Bootstrapping the Application (HTTP Services)
+## 18. NestFactory — Bootstrapping the Application (HTTP Services)
 
 **File:** `apps/auth-service/src/main.ts`
 
@@ -696,7 +800,7 @@ bootstrap();
 
 ---
 
-## 16. How All the Concepts Connect — Full Picture
+## 19. How All the Concepts Connect — Full Picture
 
 Here is how a `POST /auth/register` request flows through all these NestJS concepts:
 
@@ -741,19 +845,22 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Module | `@Module()` | Every `*.module.ts` file |
 | Controller | `@Controller()` | Every `*.controller.ts` file |
 | Service / Provider | `@Injectable()` | Every `*.service.ts`, strategies, PrismaService |
-| Route handling | `@Get()`, `@Post()` | All HTTP controllers |
+| Route handling | `@Get()`, `@Post()`, `@Delete()` | All HTTP controllers |
 | Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
-| Guard | `@UseGuards()` + `AuthGuard` | Gateway content controller (dummy controller intentionally has none) |
+| Guard | `@UseGuards()` + `AuthGuard` | Gateway content + link controllers (dummy and redirect controllers intentionally have none) |
 | Strategy (Passport) | `PassportStrategy` | Both JWT strategy files |
 | Validation Pipe | `ValidationPipe` | All HTTP `main.ts` files |
 | DTO + class-validator | `@IsEmail()`, `@IsString()`, etc. | All `dto/` files |
-| HTTP exceptions | `UnauthorizedException`, `NotFoundException`, etc. | Auth and content services |
+| HTTP exceptions | `UnauthorizedException`, `NotFoundException`, `GoneException`, etc. | Auth, content, and url-shortener services |
+| HTTP redirect | `@Redirect()` | `RedirectController` in url-shortener |
+| Raw response | `@Res()` + `res.redirect()` | Gateway `UrlShortenerRedirectController` |
 | HTTP client | `HttpModule` + `HttpService` | Gateway proxy services |
+| Cron jobs | `ScheduleModule.forRoot()` + `@Cron()` | `CleanupService` in url-shortener |
 | JWT | `JwtModule` + `JwtService` | Auth service |
-| Lifecycle hooks | `OnModuleInit`, `OnModuleDestroy` | PrismaService |
+| Lifecycle hooks | `OnModuleInit`, `OnModuleDestroy` | PrismaService (all services) |
 | Monorepo | `nest-cli.json` | Root config |
-| HTTP bootstrap | `NestFactory.create()` | Gateway, auth, content `main.ts` |
+| HTTP bootstrap | `NestFactory.create()` | Gateway, auth, content, url-shortener `main.ts` |
 | Microservice bootstrap | `NestFactory.createMicroservice()` | Notification service `main.ts` |
 | Event consumer | `@EventPattern()`, `@Payload()` | `NotificationService.handleUserCreated` |
 | Event publisher | `ClientsModule`, `ClientProxy`, `.emit()` | Auth service module + service |

@@ -354,6 +354,171 @@ Returns one content item by its ID. Only works if the item belongs to the authen
 
 ---
 
+## URL Shortener Endpoints
+
+Short link management endpoints **require** a valid `accessToken`. The public redirect endpoint does not.
+
+---
+
+### 7. Create Short Link
+
+Creates a new short link expiring in 30 days. Optionally supply a custom slug; if omitted, a random 6-character slug is generated.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/links` |
+| **Auth** | Bearer Token (accessToken) |
+
+**Body (raw JSON):**
+```json
+{
+  "targetUrl": "https://example.com/some/long/url",
+  "slug": "my-link"
+}
+```
+
+**Rules:**
+- `targetUrl` must be a valid URL.
+- `slug` is optional. If provided, must be 3–50 alphanumeric/hyphen characters (`[a-zA-Z0-9-]`).
+
+**Success Response — `201 Created`:**
+```json
+{
+  "slug": "my-link",
+  "targetUrl": "https://example.com/some/long/url",
+  "expiresAt": "2026-05-16T09:00:00.000Z",
+  "createdAt": "2026-04-16T09:00:00.000Z",
+  "clickCount": 0
+}
+```
+
+**Error Responses:**
+
+`400 Bad Request` — invalid URL or slug format:
+```json
+{
+  "message": ["targetUrl must be a valid URL"],
+  "error": "Bad Request",
+  "statusCode": 400
+}
+```
+
+`409 Conflict` — custom slug already taken:
+```json
+{
+  "message": "Slug already in use",
+  "error": "Conflict",
+  "statusCode": 409
+}
+```
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 8. List My Short Links
+
+Returns all short links belonging to the authenticated user, newest first. Includes a `clickCount` for each link.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/links` |
+| **Auth** | Bearer Token (accessToken) |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "slug": "my-link",
+    "targetUrl": "https://example.com/some/long/url",
+    "expiresAt": "2026-05-16T09:00:00.000Z",
+    "createdAt": "2026-04-16T09:00:00.000Z",
+    "clickCount": 12
+  }
+]
+```
+
+Returns an empty array `[]` if the user has no links yet.
+
+---
+
+### 9. Delete Short Link
+
+Deletes one of the authenticated user's short links by slug.
+
+| | |
+|---|---|
+| **Method** | `DELETE` |
+| **URL** | `http://localhost:3000/links/:slug` |
+| **Auth** | Bearer Token (accessToken) |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/links/my-link`
+
+**Success Response — `200 OK`** (empty body)
+
+**Error Responses:**
+
+`404 Not Found` — no link exists with that slug:
+```json
+{
+  "message": "Short link not found",
+  "error": "Not Found",
+  "statusCode": 404
+}
+```
+
+`403 Forbidden` — the link exists but belongs to a different user.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 10. Follow a Short Link (Public Redirect)
+
+Resolves a slug and issues a `302` redirect to the target URL. No authentication required. Each visit increments the click counter. Expired links return `410 Gone`.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/s/:slug` |
+| **Auth** | None |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/s/my-link`
+
+**Success Response — `302 Found`:**
+```
+Location: https://example.com/some/long/url
+```
+
+Browsers and HTTP clients that follow redirects will land directly on the target URL.
+
+**Error Responses:**
+
+`404 Not Found` — slug does not exist:
+```json
+{
+  "message": "Short link not found",
+  "error": "Not Found",
+  "statusCode": 404
+}
+```
+
+`410 Gone` — link existed but has expired:
+```json
+{
+  "message": "Link has expired",
+  "error": "Gone",
+  "statusCode": 410
+}
+```
+
+---
+
 ## Full Workflow — Step by Step
 
 Follow this order to test the entire system end to end:
@@ -399,6 +564,33 @@ Body: { "refreshToken": "<your refreshToken>" }
 ```
 Use the new `accessToken` for subsequent requests.
 
+**Step 6 — Create a short link**
+```
+POST /links
+Authorization: Bearer <accessToken>
+Body: { "targetUrl": "https://example.com", "slug": "demo" }
+```
+Copy the `slug` from the response.
+
+**Step 7 — Follow the short link (open in browser or curl)**
+```
+GET /s/demo
+```
+You will be redirected to `https://example.com`. No token needed.
+
+**Step 8 — Check click count**
+```
+GET /links
+Authorization: Bearer <accessToken>
+```
+The `clickCount` on your link should now be `1`.
+
+**Step 9 — Delete the short link**
+```
+DELETE /links/demo
+Authorization: Bearer <accessToken>
+```
+
 ---
 
 ## Quick Reference
@@ -413,3 +605,7 @@ Use the new `accessToken` for subsequent requests.
 | `/content` | POST | Yes | Create a content item |
 | `/content` | GET | Yes | List all your content |
 | `/content/:id` | GET | Yes | Get one content item by ID |
+| `/links` | POST | Yes | Create a short link (30-day expiry) |
+| `/links` | GET | Yes | List your short links with click counts |
+| `/links/:slug` | DELETE | Yes | Delete a short link |
+| `/s/:slug` | GET | No | Follow a short link (302 redirect) |

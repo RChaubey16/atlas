@@ -8,6 +8,7 @@ Think of it like a restaurant:
 - There is a **front desk** (the Gateway) that greets every customer and directs them to the right place.
 - There is a **staff office** (the Auth Service) that checks IDs and issues visitor passes.
 - There is a **kitchen** (the Content Service) that handles the actual food — in this case, content like posts or articles.
+- There is a **shortcut desk** (the URL Shortener Service) that hands out short cards that redirect people to longer destinations, and tracks how often each card is used.
 
 The front desk never makes food, and the kitchen never checks IDs. Each part does one thing well.
 
@@ -21,14 +22,14 @@ You (the user / app)
         ▼
   [ API Gateway ]        ← The only door into the system (port 3000)
         |
-   ┌────┴────┐
-   ▼         ▼
-[Auth      [Content
- Service]   Service]
-   |             |
-   └──────┬──────┘
-          ▼
-     [ PostgreSQL ]      ← The database where everything is saved
+   ┌────┼────────────────┐
+   ▼    ▼                ▼
+[Auth  [Content     [URL Shortener
+Svc]    Service]      Service]
+   |        |              |
+   └────────┴──────────────┘
+                 ▼
+           [ PostgreSQL ]  ← The database where everything is saved
 
 [Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ] --> Resend API
 ```
@@ -36,6 +37,8 @@ You (the user / app)
 Every request from the outside world goes through the **Gateway first**. The Gateway decides where to send it and, for protected routes, checks that the user has a valid pass (JWT token) before letting them through.
 
 When a user registers, the Auth Service publishes a `user.created` event to **RabbitMQ**. The Notification Service listens for this event in the background and sends a welcome email via SMTP — completely decoupled from the HTTP request.
+
+Short link management routes (`/links/*`) are guarded by the same JWT check. The public redirect route (`/s/:slug`) intentionally bypasses the guard — anyone can follow a short link without an account.
 
 ---
 
@@ -58,6 +61,9 @@ Key files:
 - `apps/gateway/src/auth/auth-proxy.service.ts` — forwards login/register calls to the Auth Service
 - `apps/gateway/src/content/content-proxy.service.ts` — forwards content calls to the Content Service, passing the verified user ID along
 - `apps/gateway/src/dummy/dummy-proxy.controller.ts` — serves `/dummy/blogs` and `/dummy/users` with no guard (fully public)
+- `apps/gateway/src/url-shortener/url-shortener-proxy.service.ts` — forwards `/links/*` calls to the URL Shortener Service and handles slug resolution for redirects
+- `apps/gateway/src/url-shortener/url-shortener-proxy.controller.ts` — guarded by `JwtAuthGuard`; passes `userId` from the token down to the URL Shortener
+- `apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts` — handles `GET /s/:slug` with no guard; issues a 302 redirect to the client
 
 ---
 
@@ -129,6 +135,30 @@ Key files:
 
 ---
 
+### 5. URL Shortener Service (`apps/url-shortener/`) — Port 3003
+
+**Creates, resolves, and tracks short links with a 30-day expiry.**
+
+Like the Content Service, the URL Shortener only talks to the Gateway — never directly to clients. The Gateway forwards the verified user ID in the `x-user-id` header, so the service always knows who is making the request.
+
+The public redirect endpoint (`GET /s/:slug`) is the exception: the Gateway exposes it without any auth guard, and the URL Shortener handles it directly, recording a click before issuing the redirect.
+
+What it does:
+
+- **Create a short link** — takes a `targetUrl` and an optional custom slug; generates a random 6-character slug if none is supplied; link expires after 30 days.
+- **List my links** — returns all links for the authenticated user, newest first, with a live click count.
+- **Delete a link** — removes a link; only the owner can delete their own links (403 if someone else tries).
+- **Resolve and redirect** — given a slug, records a click event and returns the `targetUrl`; throws 410 Gone if the link has expired.
+- **Nightly cleanup** — a `@Cron` job at 2 AM automatically deletes all expired links from the database.
+
+Key files:
+- `apps/url-shortener/src/links/links.service.ts` — create, list, delete, and resolve logic; slug generation uses Node's built-in `crypto` module
+- `apps/url-shortener/src/links/links.controller.ts` — `POST /links`, `GET /links`, `DELETE /links/:slug`; validates the `x-user-id` header is present
+- `apps/url-shortener/src/links/cleanup.service.ts` — nightly cron job that deletes expired `ShortLink` rows
+- `apps/url-shortener/src/redirect/redirect.controller.ts` — `GET /s/:slug`; calls `resolveAndTrack` and issues a 302 redirect using NestJS's `@Redirect()` decorator
+
+---
+
 ## Shared Code (`libs/contracts/`)
 
 Services need to agree on what data looks like when they talk to each other. This library holds those shared definitions.
@@ -152,7 +182,7 @@ Having the contract in a shared library means neither service needs to know anyt
 
 ## The Database (`prisma/schema.prisma`)
 
-One PostgreSQL database is shared, with two tables:
+One PostgreSQL database is shared, with four tables:
 
 **`users` table** — owned by the Auth Service
 | Column | What it stores |
@@ -172,6 +202,25 @@ One PostgreSQL database is shared, with two tables:
 | created_at | When the content was created |
 
 The `owner_id` column is how the system enforces ownership — you can only read or modify content where `owner_id` matches your user ID.
+
+**`ShortLink` table** — owned by the URL Shortener Service
+| Column | What it stores |
+|---|---|
+| id | A unique ID (cuid) for every short link |
+| slug | The short identifier in the URL (must be unique, e.g. `abc123`) |
+| targetUrl | The full URL the short link redirects to |
+| userId | The ID of the user who created it |
+| expiresAt | When this link stops working (30 days after creation) |
+| createdAt | When the link was created |
+
+**`ClickEvent` table** — owned by the URL Shortener Service
+| Column | What it stores |
+|---|---|
+| id | A unique ID for every click |
+| shortLinkId | Which short link was clicked (links to `ShortLink.id`) |
+| clickedAt | When the click happened |
+
+`ClickEvent` rows are deleted automatically when their parent `ShortLink` is deleted (`onDelete: Cascade`). The click count displayed in the API is derived by counting how many `ClickEvent` rows belong to a given `ShortLink`.
 
 ---
 
@@ -216,6 +265,29 @@ Meanwhile, asynchronously:
 7. Gateway passes the response back to the client
 ```
 
+### Creating and Following a Short Link
+
+```
+Creating (authenticated):
+1. Client sends:  POST /links  { targetUrl: "https://...", slug: "my-link" }
+                  Authorization: Bearer <accessToken>
+2. Gateway checks the JWT token, extracts userId
+3. Gateway forwards to URL Shortener with header x-user-id: <userId>
+4. URL Shortener checks the slug is not already taken
+5. URL Shortener saves ShortLink with expiresAt = now + 30 days
+6. Returns { slug, targetUrl, expiresAt, createdAt, clickCount: 0 }
+7. Gateway passes the response back to the client
+
+Following (public, no token needed):
+1. Client sends:  GET /s/my-link
+2. Gateway forwards to URL Shortener — no JWT guard on this route
+3. URL Shortener looks up the slug, checks it has not expired
+4. URL Shortener inserts a ClickEvent row
+5. URL Shortener returns { url: "https://...", statusCode: 302 }
+6. Gateway issues a 302 redirect to the client's browser
+7. Browser follows the redirect to the target URL
+```
+
 ---
 
 ## Running the Project
@@ -234,6 +306,7 @@ Services will be available at:
 - Gateway (your entry point): `http://localhost:3000`
 - Auth Service (internal): `http://localhost:3001`
 - Content Service (internal): `http://localhost:3002`
+- URL Shortener Service (internal): `http://localhost:3003`
 - RabbitMQ management UI: `http://localhost:15672` (guest / guest — local dev only)
 
 ---
@@ -250,6 +323,8 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | `RABBITMQ_URL` | Connection URL for RabbitMQ (e.g. `amqp://guest:guest@localhost:5672`) |
 | `RESEND_API_KEY` | API key for the Resend email service |
 | `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@yourdomain.com>`) |
+| `URL_SHORTENER_PORT` | Port the URL Shortener Service listens on (default `3003`) |
+| `URL_SHORTENER_URL` | Base URL the Gateway uses to reach the URL Shortener (e.g. `http://localhost:3003`) |
 
 ---
 
@@ -277,4 +352,3 @@ The architecture is designed so these can be added without changing any existing
 - **Job Worker** — handles background tasks and queues
 - **Redis caching** — speeds up frequent database reads
 - **RBAC** — role-based permissions (admin, editor, viewer)
-- **URL Shortener Service** — creates and resolves short links with expiry and click analytics
