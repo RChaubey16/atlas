@@ -26,3 +26,20 @@ model Content {
 
   @@map("content")
 }
+
+model ShortLink {
+  id        String       @id @default(cuid())
+  slug      String       @unique
+  targetUrl String
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  clicks    ClickEvent[]
+}
+
+model ClickEvent {
+  id          String    @id @default(cuid())
+  shortLinkId String
+  clickedAt   DateTime  @default(now())
+  shortLink   ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
+}
