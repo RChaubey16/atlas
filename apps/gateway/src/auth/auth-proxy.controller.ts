@@ -40,7 +40,10 @@ export class AuthProxyController {
     return this.authProxy.refresh(dto);
   }
 
-  @ApiOperation({ summary: 'Initiate Google OAuth login' })
+  @ApiOperation({
+    summary: 'Initiate Google OAuth login',
+    description: 'Pass ?redirect=https://links.ruturaj.xyz to control where the browser lands after auth.',
+  })
   @ApiResponse({ status: 302, description: 'Redirects to Google consent screen' })
   @UseGuards(GoogleAuthGuard)
   @Get('google')
@@ -48,12 +51,32 @@ export class AuthProxyController {
     // Passport redirects to Google — no body needed
   }
 
-  @ApiOperation({ summary: 'Google OAuth callback — returns token pair' })
-  @ApiResponse({ status: 200, description: 'Access and refresh tokens', type: TokenPairDto })
+  @ApiOperation({ summary: 'Google OAuth callback — sets auth cookies and redirects to frontend' })
+  @ApiResponse({ status: 302, description: 'Redirects to the frontend with auth cookies set' })
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const tokens = await this.authProxy.googleProfile(req.user as GoogleProfile);
-    res.json(tokens);
+    const tokens = await this.authProxy.googleProfile(req.user as GoogleProfile) as { accessToken: string; refreshToken: string };
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax' as const,
+      domain: isProd ? '.ruturaj.xyz' : undefined,
+    };
+
+    res.cookie('access_token', tokens.accessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const redirectTarget = (req.query.state as string) || process.env.FRONTEND_URL || '/';
+    res.redirect(redirectTarget);
   }
 }

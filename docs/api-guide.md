@@ -6,13 +6,28 @@ All requests go through the **Gateway** only. Never call auth-service or content
 
 ---
 
+## Authentication — Two Modes
+
+Atlas supports two ways to authenticate, depending on the client type:
+
+| Client | How tokens are sent | How to authenticate |
+|---|---|---|
+| **Browser (SPA/frontend)** | `httpOnly` cookies set automatically | Use Google OAuth or login — cookies are sent with every request |
+| **API client (Postman, curl)** | `Authorization: Bearer <token>` header | Copy the `accessToken` from the login/register response and add it manually |
+
+The gateway accepts **both** on every protected route — cookies are checked first, then the `Authorization` header.
+
+---
+
 ## Setup in Postman
 
 1. Open Postman and create a new **Collection** called `Atlas`.
 2. For every request, set the header:
    - `Content-Type: application/json`
    - (Postman sets this automatically when you choose **Body → raw → JSON**)
-3. After logging in or registering, copy the `accessToken` from the response. You will need it for all content endpoints.
+3. After logging in or registering, copy the `accessToken` from the response. You will need it for all content endpoints — add it via the **Authorization** tab → **Bearer Token**.
+
+> Google OAuth is a browser-only flow and cannot be tested with Postman's request builder.
 
 ---
 
@@ -81,7 +96,7 @@ These endpoints do **not** require a token. Anyone can call them.
 
 ### 1. Register
 
-Creates a new user account and returns tokens immediately. A welcome email is sent asynchronously via the Notification Service — this happens in the background and does not delay the response.
+Creates a new user account and returns tokens. A welcome email is sent asynchronously via the Notification Service.
 
 | | |
 |---|---|
@@ -168,11 +183,13 @@ Authenticates an existing user and returns fresh tokens.
 }
 ```
 
+> **Note:** Google-only accounts (no password set) will also return `401` here. Use Google OAuth instead.
+
 ---
 
 ### 3. Google OAuth — Sign In with Google
 
-Google OAuth is a browser-based flow. You cannot test it with Postman's request builder — open the URL directly in a browser.
+Google OAuth is a **browser-only** flow. Open the URL in a browser — do not use Postman's request builder.
 
 #### Step 1 — Initiate login
 
@@ -183,38 +200,45 @@ Google OAuth is a browser-based flow. You cannot test it with Postman's request 
 | **Auth** | None |
 | **Body** | None |
 
-Opening this URL in a browser triggers a `302` redirect to Google's consent screen. No response body is returned directly.
-
-#### Step 2 — Google redirects back
-
-After you authenticate on Google, the browser is redirected to:
+Pass a `?redirect=` query parameter to control where the browser lands after authentication:
 
 ```
-GET /auth/google/callback?code=...
+http://localhost:3000/auth/google?redirect=https://links.ruturaj.xyz
 ```
 
-The Gateway handles this automatically. You do not call this endpoint manually.
+If omitted, the browser is redirected to the `FRONTEND_URL` configured on the server.
 
-**Success Response — `200 OK`:**
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
+The gateway issues a `302` redirect to Google's consent screen. Nothing is returned to the caller directly.
+
+#### Step 2 — Google redirects back (automatic)
+
+After you authenticate on Google, the browser is automatically redirected to:
+
+```
+GET /auth/google/callback?code=...&state=<your-redirect-url>
 ```
 
-Use these tokens exactly like the ones returned by `/auth/register` and `/auth/login`.
+You do not call this endpoint manually — the browser follows the redirect from Google.
+
+**What happens next:**
+1. The gateway validates the Google profile.
+2. Two `httpOnly` cookies are set on `.ruturaj.xyz`:
+   - `access_token` — expires in **15 minutes**
+   - `refresh_token` — expires in **7 days**
+3. The browser is redirected to the URL you passed in `?redirect=`.
+
+From this point, the browser sends both cookies automatically with every request to any `*.ruturaj.xyz` subdomain — no manual token handling required.
 
 **Account linking behaviour:**
-- If the Google email matches an existing email/password account, the Google ID is linked to that account — no duplicate user is created.
-- If no account exists, a new one is created and a welcome email is sent.
-- Google-only accounts have no password and cannot log in via `POST /auth/login`.
+- Found by Google ID → returns existing user.
+- Google email matches an existing email/password account → links the Google ID to that account.
+- No match → creates a new user and sends a welcome email.
 
 ---
 
 ### 4. Refresh Token
 
-The `accessToken` expires after **15 minutes**. Use this endpoint to get a new pair of tokens using your `refreshToken` (valid for 7 days) — without logging in again.
+The `access_token` (cookie) or `accessToken` (JSON) expires after **15 minutes**. Use this endpoint to get a new pair without logging in again.
 
 | | |
 |---|---|
@@ -252,17 +276,14 @@ The `accessToken` expires after **15 minutes**. Use this endpoint to get a new p
 
 ## Content Endpoints
 
-All content endpoints **require** a valid `accessToken`. Add it to every request as a header:
+All content endpoints **require** authentication.
 
-| Header | Value |
-|---|---|
-| `Authorization` | `Bearer <your_accessToken_here>` |
-
-**In Postman:** Go to the **Authorization** tab → select **Bearer Token** → paste your `accessToken`.
+- **Browser clients** — cookies are sent automatically, no extra setup needed.
+- **Postman / API clients** — add the `accessToken` as a Bearer token: **Authorization** tab → **Bearer Token** → paste your `accessToken`.
 
 ---
 
-### 4. Create Content
+### 5. Create Content
 
 Creates a new content item owned by the authenticated user.
 
@@ -270,7 +291,7 @@ Creates a new content item owned by the authenticated user.
 |---|---|
 | **Method** | `POST` |
 | **URL** | `http://localhost:3000/content` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 
 **Body (raw JSON):**
 ```json
@@ -316,7 +337,7 @@ Creates a new content item owned by the authenticated user.
 
 ---
 
-### 5. Get My Content
+### 6. Get My Content
 
 Returns all content items belonging to the authenticated user, newest first.
 
@@ -324,7 +345,7 @@ Returns all content items belonging to the authenticated user, newest first.
 |---|---|
 | **Method** | `GET` |
 | **URL** | `http://localhost:3000/content` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 | **Body** | None |
 
 **Success Response — `200 OK`:**
@@ -336,13 +357,6 @@ Returns all content items belonging to the authenticated user, newest first.
     "body": "This is the content of my first post.",
     "ownerId": "b1c2d3e4-f5a6-7890-abcd-123456789abc",
     "createdAt": "2026-04-07T10:30:00.000Z"
-  },
-  {
-    "id": "d4e5f6a7-b8c9-0123-def0-456789abcdef",
-    "title": "Another Post",
-    "body": "More content here.",
-    "ownerId": "b1c2d3e4-f5a6-7890-abcd-123456789abc",
-    "createdAt": "2026-04-07T09:00:00.000Z"
   }
 ]
 ```
@@ -351,7 +365,7 @@ Returns an empty array `[]` if the user has no content yet.
 
 ---
 
-### 6. Get Single Content Item
+### 7. Get Single Content Item
 
 Returns one content item by its ID. Only works if the item belongs to the authenticated user.
 
@@ -359,7 +373,7 @@ Returns one content item by its ID. Only works if the item belongs to the authen
 |---|---|
 | **Method** | `GET` |
 | **URL** | `http://localhost:3000/content/:id` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 | **Body** | None |
 
 **Example URL:** `http://localhost:3000/content/a3f1c2d4-5e6f-7890-abcd-ef1234567890`
@@ -398,11 +412,14 @@ Returns one content item by its ID. Only works if the item belongs to the authen
 
 ## URL Shortener Endpoints
 
-Short link management endpoints **require** a valid `accessToken`. The public redirect endpoint does not.
+Short link management endpoints **require** authentication. The public redirect endpoint does not.
+
+- **Browser clients** — cookies sent automatically.
+- **Postman / API clients** — use `Authorization: Bearer <accessToken>`.
 
 ---
 
-### 7. Create Short Link
+### 8. Create Short Link
 
 Creates a new short link expiring in 30 days. Optionally supply a custom slug; if omitted, a random 6-character slug is generated.
 
@@ -410,7 +427,7 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
 |---|---|
 | **Method** | `POST` |
 | **URL** | `http://localhost:3000/links` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 
 **Body (raw JSON):**
 ```json
@@ -459,7 +476,7 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
 
 ---
 
-### 8. List My Short Links
+### 9. List My Short Links
 
 Returns all short links belonging to the authenticated user, newest first. Includes a `clickCount` for each link.
 
@@ -467,7 +484,7 @@ Returns all short links belonging to the authenticated user, newest first. Inclu
 |---|---|
 | **Method** | `GET` |
 | **URL** | `http://localhost:3000/links` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 | **Body** | None |
 
 **Success Response — `200 OK`:**
@@ -487,7 +504,7 @@ Returns an empty array `[]` if the user has no links yet.
 
 ---
 
-### 9. Delete Short Link
+### 10. Delete Short Link
 
 Deletes one of the authenticated user's short links by slug.
 
@@ -495,7 +512,7 @@ Deletes one of the authenticated user's short links by slug.
 |---|---|
 | **Method** | `DELETE` |
 | **URL** | `http://localhost:3000/links/:slug` |
-| **Auth** | Bearer Token (accessToken) |
+| **Auth** | Cookie or Bearer Token |
 | **Body** | None |
 
 **Example URL:** `http://localhost:3000/links/my-link`
@@ -519,7 +536,7 @@ Deletes one of the authenticated user's short links by slug.
 
 ---
 
-### 10. Follow a Short Link (Public Redirect)
+### 11. Follow a Short Link (Public Redirect)
 
 Resolves a slug and issues a `302` redirect to the target URL. No authentication required. Each visit increments the click counter. Expired links return `410 Gone`.
 
@@ -563,9 +580,9 @@ Browsers and HTTP clients that follow redirects will land directly on the target
 
 ## Full Workflow — Step by Step
 
-Follow this order to test the entire system end to end:
+### API client (Postman)
 
-**Step 0 — Verify the API is up (no auth needed)**
+**Step 0 — Verify the API is up**
 ```
 GET /dummy/blogs
 ```
@@ -576,22 +593,20 @@ If you get back a JSON array of 5 blogs, the stack is running correctly.
 POST /auth/register
 Body: { "email": "test@example.com", "password": "password123" }
 ```
-Copy the `accessToken` and `refreshToken` from the response. A welcome email will be sent to the address you registered with (requires `RESEND_API_KEY` to be configured).
+Copy the `accessToken` from the response.
 
-**Step 2 — Create some content**
+**Step 2 — Create content**
 ```
 POST /content
 Authorization: Bearer <accessToken>
 Body: { "title": "Hello World", "body": "My first post." }
 ```
-Copy the `id` from the response.
 
 **Step 3 — Fetch all your content**
 ```
 GET /content
 Authorization: Bearer <accessToken>
 ```
-You should see the item you just created.
 
 **Step 4 — Fetch one item by ID**
 ```
@@ -599,12 +614,11 @@ GET /content/<id>
 Authorization: Bearer <accessToken>
 ```
 
-**Step 5 — Simulate token expiry and refresh**
+**Step 5 — Refresh tokens**
 ```
 POST /auth/refresh
 Body: { "refreshToken": "<your refreshToken>" }
 ```
-Use the new `accessToken` for subsequent requests.
 
 **Step 6 — Create a short link**
 ```
@@ -612,20 +626,17 @@ POST /links
 Authorization: Bearer <accessToken>
 Body: { "targetUrl": "https://example.com", "slug": "demo" }
 ```
-Copy the `slug` from the response.
 
 **Step 7 — Follow the short link (open in browser or curl)**
 ```
 GET /s/demo
 ```
-You will be redirected to `https://example.com`. No token needed.
 
 **Step 8 — Check click count**
 ```
 GET /links
 Authorization: Bearer <accessToken>
 ```
-The `clickCount` on your link should now be `1`.
 
 **Step 9 — Delete the short link**
 ```
@@ -635,17 +646,39 @@ Authorization: Bearer <accessToken>
 
 ---
 
+### Browser client (Google OAuth)
+
+**Step 1 — Initiate Google login from your frontend**
+```
+window.location.href = 'https://atlas.ruturaj.xyz/auth/google?redirect=https://links.ruturaj.xyz'
+```
+
+**Step 2 — Authenticate on Google**
+
+Google redirects back to the gateway, which sets `access_token` and `refresh_token` cookies on `.ruturaj.xyz` and redirects the browser to `https://links.ruturaj.xyz`.
+
+**Step 3 — Make authenticated requests from the frontend**
+
+No token handling needed — the browser sends the cookies automatically:
+```js
+fetch('https://atlas.ruturaj.xyz/links', { credentials: 'include' })
+```
+
+The `credentials: 'include'` option is required for cross-origin cookie sending.
+
+---
+
 ## Quick Reference
 
 | Endpoint | Method | Auth Required | Purpose |
 |---|---|---|---|
 | `/dummy/blogs` | GET | No | 5 hardcoded blogs for testing |
 | `/dummy/users` | GET | No | 5 hardcoded fake users for testing |
-| `/auth/register` | POST | No | Create account, get tokens |
-| `/auth/login` | POST | No | Login, get tokens |
-| `/auth/refresh` | POST | No | Swap refresh token for new tokens |
-| `/auth/google` | GET | No | Initiate Google OAuth (browser only) |
-| `/auth/google/callback` | GET | No | Google OAuth callback — handled automatically |
+| `/auth/register` | POST | No | Create account, returns token pair |
+| `/auth/login` | POST | No | Login, returns token pair |
+| `/auth/refresh` | POST | No | Swap refresh token for new token pair |
+| `/auth/google` | GET | No | Initiate Google OAuth — pass `?redirect=<url>` (browser only) |
+| `/auth/google/callback` | GET | No | Google OAuth callback — sets cookies, redirects to frontend |
 | `/content` | POST | Yes | Create a content item |
 | `/content` | GET | Yes | List all your content |
 | `/content/:id` | GET | Yes | Get one content item by ID |
