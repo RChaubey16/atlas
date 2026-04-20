@@ -40,6 +40,22 @@ export class AuthProxyController {
     return this.authProxy.refresh(dto);
   }
 
+  @ApiOperation({ summary: 'Sign out — clears auth cookies' })
+  @ApiResponse({ status: 200, description: 'Cookies cleared' })
+  @Post('logout')
+  logout(@Res() res: Response) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax' as const,
+      domain: isProd ? '.ruturaj.xyz' : undefined,
+    };
+    res.clearCookie('access_token', cookieOptions);
+    res.clearCookie('refresh_token', cookieOptions);
+    res.json({ success: true });
+  }
+
   @ApiOperation({
     summary: 'Initiate Google OAuth login',
     description: 'Pass ?redirect=https://links.ruturaj.xyz to control where the browser lands after auth.',
