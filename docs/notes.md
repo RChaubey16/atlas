@@ -52,13 +52,16 @@ Every API call from a client (mobile app, browser, etc.) hits the Gateway first.
 
 - **Routes requests** — forwards `/auth/...` calls to the Auth Service and `/content/...` calls to the Content Service. Also serves `/dummy/...` routes publicly without any auth check.
 - **Checks identity** — for content routes, it verifies the user's JWT token before forwarding. If the token is missing or fake, the request is rejected here and never reaches the other services. Dummy and auth routes are intentionally exempt.
+- **Owns the Google OAuth flow** — the Gateway holds the `GoogleStrategy` (Passport) and the Google client credentials. It initiates the redirect to Google and handles the callback. After Google confirms identity, it forwards the profile to the Auth Service to issue a JWT pair. This keeps external OAuth logic at the boundary and auth business logic inside the Auth Service.
 
 The Gateway does not have its own database. It is purely a traffic director.
 
 Key files:
 - `apps/gateway/src/auth/jwt.strategy.ts` — teaches the gateway how to read and verify a JWT token
 - `apps/gateway/src/auth/jwt-auth.guard.ts` — the actual "bouncer" that blocks unauthenticated requests
-- `apps/gateway/src/auth/auth-proxy.service.ts` — forwards login/register calls to the Auth Service
+- `apps/gateway/src/auth/strategies/google.strategy.ts` — Passport Google OAuth 2.0 strategy; extracts `googleId`, `email`, and `name` from the Google profile
+- `apps/gateway/src/auth/guards/google-auth.guard.ts` — triggers the Google redirect on `GET /auth/google` and validates the callback on `GET /auth/google/callback`
+- `apps/gateway/src/auth/auth-proxy.service.ts` — forwards login/register/Google-profile calls to the Auth Service
 - `apps/gateway/src/content/content-proxy.service.ts` — forwards content calls to the Content Service, passing the verified user ID along
 - `apps/gateway/src/dummy/dummy-proxy.controller.ts` — serves `/dummy/blogs` and `/dummy/users` with no guard (fully public)
 - `apps/gateway/src/url-shortener/url-shortener-proxy.service.ts` — forwards `/links/*` calls to the URL Shortener Service and handles slug resolution for redirects
@@ -78,13 +81,15 @@ What it does:
 - **Register** — takes an email and password, saves the user (password is hashed and never stored in plain text), and returns two tokens.
 - **Login** — checks the email and password, and if correct, returns two tokens.
 - **Refresh** — when your short-lived access token expires, you can swap your refresh token for a new pair without logging in again.
+- **Google profile** — internal endpoint called by the Gateway after a successful Google OAuth callback. Finds an existing user by `googleId`, links a `googleId` to an existing email/password account if the email matches, or creates a brand-new user. Always returns a JWT pair.
 
 **What is a JWT token?**
 Think of it as a digitally signed visitor badge. It contains your user ID and email, and it proves you are who you say you are without the server needing to look you up in the database every time. It has an expiry — access tokens last 15 minutes, refresh tokens last 7 days.
 
 Key files:
-- `apps/auth-service/src/auth/auth.service.ts` — the core logic: register, login, refresh, and issue tokens
+- `apps/auth-service/src/auth/auth.service.ts` — the core logic: register, login, refresh, Google find-or-create, and issue tokens
 - `apps/auth-service/src/auth/dto/register.dto.ts` — defines what a valid registration request looks like (email + password of at least 8 characters)
+- `apps/auth-service/src/auth/dto/google-profile.dto.ts` — shape of the Google profile sent from the Gateway (`googleId`, `email`, optional `name`)
 - `apps/auth-service/src/auth/strategies/jwt.strategy.ts` — the rules for verifying a JWT token
 
 ---
@@ -189,7 +194,8 @@ One PostgreSQL database is shared, with four tables:
 |---|---|
 | id | A unique ID (UUID) for every user |
 | email | The user's email address (must be unique) |
-| password_hash | The password, scrambled securely with bcrypt |
+| password_hash | The password, scrambled securely with bcrypt (nullable — Google-only users have no password) |
+| google_id | The user's Google account ID (nullable — email/password users have no Google ID) |
 | created_at | When the account was created |
 
 **`content` table** — owned by the Content Service
@@ -240,6 +246,25 @@ The `owner_id` column is how the system enforces ownership — you can only read
 Meanwhile, asynchronously:
 8. Notification Service receives the user.created event from RabbitMQ
 9. Notification Service sends a welcome email to the new user via Resend API
+```
+
+### Signing in with Google
+
+```
+1. User opens browser:  GET /auth/google
+2. Gateway's GoogleAuthGuard triggers Passport GoogleStrategy
+3. Passport redirects browser to Google's OAuth consent screen
+4. User authenticates on Google and grants permission
+5. Google redirects browser to: GET /auth/google/callback?code=...
+6. Gateway's GoogleStrategy exchanges the code for a Google profile
+   (extracts googleId, email, name)
+7. Gateway calls: POST /auth/google-profile → Auth Service
+8. Auth Service runs find-or-create logic:
+   a. Found by googleId → return existing user
+   b. Not found, but email matches an existing account → link googleId to that account
+   c. Neither → create a new user (no password_hash), emit user.created event
+9. Auth Service issues JWT pair and returns { accessToken, refreshToken }
+10. Gateway returns tokens as JSON to the browser
 ```
 
 ### Fetching Dummy Data (no auth)
@@ -325,6 +350,9 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@yourdomain.com>`) |
 | `URL_SHORTENER_PORT` | Port the URL Shortener Service listens on (default `3003`) |
 | `URL_SHORTENER_URL` | Base URL the Gateway uses to reach the URL Shortener (e.g. `http://localhost:3003`) |
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 client secret from Google Cloud Console |
+| `GOOGLE_CALLBACK_URL` | Must exactly match the redirect URI registered in Google Cloud Console (e.g. `http://localhost:3000/auth/google/callback`) |
 
 ---
 

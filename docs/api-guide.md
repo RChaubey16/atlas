@@ -170,7 +170,49 @@ Authenticates an existing user and returns fresh tokens.
 
 ---
 
-### 3. Refresh Token
+### 3. Google OAuth — Sign In with Google
+
+Google OAuth is a browser-based flow. You cannot test it with Postman's request builder — open the URL directly in a browser.
+
+#### Step 1 — Initiate login
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/auth/google` |
+| **Auth** | None |
+| **Body** | None |
+
+Opening this URL in a browser triggers a `302` redirect to Google's consent screen. No response body is returned directly.
+
+#### Step 2 — Google redirects back
+
+After you authenticate on Google, the browser is redirected to:
+
+```
+GET /auth/google/callback?code=...
+```
+
+The Gateway handles this automatically. You do not call this endpoint manually.
+
+**Success Response — `200 OK`:**
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+Use these tokens exactly like the ones returned by `/auth/register` and `/auth/login`.
+
+**Account linking behaviour:**
+- If the Google email matches an existing email/password account, the Google ID is linked to that account — no duplicate user is created.
+- If no account exists, a new one is created and a welcome email is sent.
+- Google-only accounts have no password and cannot log in via `POST /auth/login`.
+
+---
+
+### 4. Refresh Token
 
 The `accessToken` expires after **15 minutes**. Use this endpoint to get a new pair of tokens using your `refreshToken` (valid for 7 days) — without logging in again.
 
@@ -602,6 +644,8 @@ Authorization: Bearer <accessToken>
 | `/auth/register` | POST | No | Create account, get tokens |
 | `/auth/login` | POST | No | Login, get tokens |
 | `/auth/refresh` | POST | No | Swap refresh token for new tokens |
+| `/auth/google` | GET | No | Initiate Google OAuth (browser only) |
+| `/auth/google/callback` | GET | No | Google OAuth callback — handled automatically |
 | `/content` | POST | Yes | Create a content item |
 | `/content` | GET | Yes | List all your content |
 | `/content/:id` | GET | Yes | Get one content item by ID |

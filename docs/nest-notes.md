@@ -281,11 +281,13 @@ export class ContentProxyController {
 
 ---
 
-## 8. Strategies (Passport) — The JWT Verification Logic
+## 8. Strategies (Passport) — Authentication Logic
 
-**Files:** `apps/gateway/src/auth/jwt.strategy.ts`, `apps/auth-service/src/auth/strategies/jwt.strategy.ts`
+**Files:** `apps/gateway/src/auth/jwt.strategy.ts`, `apps/auth-service/src/auth/strategies/jwt.strategy.ts`, `apps/gateway/src/auth/strategies/google.strategy.ts`
 
-**Passport** is a popular authentication library for Node.js. NestJS integrates it via `@nestjs/passport`. A **Strategy** defines *how* to authenticate — in this case, how to verify a JWT token.
+**Passport** is a popular authentication library for Node.js. NestJS integrates it via `@nestjs/passport`. A **Strategy** defines *how* to authenticate. This project uses two strategies.
+
+### JWT Strategy — verifying tokens on protected routes
 
 ```ts
 // apps/gateway/src/auth/jwt.strategy.ts
@@ -322,6 +324,59 @@ Request arrives with: Authorization: Bearer eyJhbGc...
        ↓
   If valid → { userId, email } is attached to req.user
   If invalid → 401 Unauthorized is returned immediately
+```
+
+### Google Strategy — OAuth 2.0 browser-based login
+
+```ts
+// apps/gateway/src/auth/strategies/google.strategy.ts
+@Injectable()
+export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
+  constructor() {
+    super({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_CALLBACK_URL,
+      scope: ['email', 'profile'],
+    });
+  }
+
+  validate(_accessToken, _refreshToken, profile, done) {
+    // ↑ called after Google confirms the user's identity
+    // extracts the fields we care about and passes them to the controller via req.user
+    const user = {
+      googleId: profile.id,
+      email: profile.emails[0].value,
+      name: profile.displayName,
+    };
+    done(null, user);
+  }
+}
+```
+
+The second argument to `PassportStrategy(Strategy, 'google')` names the strategy `'google'`. This is what `GoogleAuthGuard extends AuthGuard('google')` refers to. Without the name, it would conflict with the default `'jwt'` strategy.
+
+**How the Google OAuth flow works with Guards and Strategy:**
+
+```
+GET /auth/google
+  GoogleAuthGuard triggers
+       ↓
+  Passport sees no session yet → calls Strategy to redirect
+       ↓
+  Browser is sent to Google's consent screen (302)
+
+Google authenticates the user and redirects to:
+GET /auth/google/callback?code=...
+  GoogleAuthGuard triggers again
+       ↓
+  Passport exchanges the code for a Google profile
+       ↓
+  GoogleStrategy.validate() is called with the profile
+       ↓
+  { googleId, email, name } is attached to req.user
+       ↓
+  Controller calls Auth Service to find/create user and issue JWT pair
 ```
 
 The Guard is the enforcer. The Strategy is the logic it delegates to. Both are registered as providers in the module.
@@ -849,7 +904,8 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
 | Guard | `@UseGuards()` + `AuthGuard` | Gateway content + link controllers (dummy and redirect controllers intentionally have none) |
-| Strategy (Passport) | `PassportStrategy` | Both JWT strategy files |
+| Strategy (Passport) — JWT | `PassportStrategy(Strategy)` | `jwt.strategy.ts` in gateway and auth-service |
+| Strategy (Passport) — Google | `PassportStrategy(Strategy, 'google')` | `google.strategy.ts` in gateway |
 | Validation Pipe | `ValidationPipe` | All HTTP `main.ts` files |
 | DTO + class-validator | `@IsEmail()`, `@IsString()`, etc. | All `dto/` files |
 | HTTP exceptions | `UnauthorizedException`, `NotFoundException`, `GoneException`, etc. | Auth, content, and url-shortener services |
