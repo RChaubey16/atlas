@@ -1,28 +1,33 @@
 # Atlas
 
-A production-style microservices backend built with NestJS. Demonstrates clean service boundaries, an API Gateway pattern, JWT authentication, and a shared contracts library — all running in Docker.
+A production-style microservices backend built with NestJS. Demonstrates clean service boundaries, an API Gateway pattern, JWT authentication, Google OAuth, event-driven notifications, and URL shortening — all running in Docker.
 
 ---
 
 ## Overview
 
-Atlas is split into three independent services, each with a single responsibility:
+Atlas is split into five independent services, each with a single responsibility:
 
 | Service | Port | Responsibility |
 |---|---|---|
-| **API Gateway** | `3000` | Single entry point — routes requests, validates JWT tokens |
-| **Auth Service** | `3001` | User registration, login, and token management |
+| **API Gateway** | `3000` | Single entry point — CORS, JWT guard, Google OAuth, proxies all routes |
+| **Auth Service** | `3001` | Registration, login, refresh tokens, Google find-or-create |
 | **Content Service** | `3002` | Creating and fetching content owned by a user |
+| **URL Shortener** | `3003` | Short link creation, click tracking, nightly expiry cleanup |
+| **Notification Service** | — | RabbitMQ consumer — sends welcome emails via Resend on `user.created` |
 
-All client traffic enters through the **Gateway only**. The other services are internal and never exposed directly.
+All client traffic enters through the **Gateway only**. All other services are internal.
 
 ```
-Client
-  │
-  ▼
-API Gateway  :3000
-  ├──► Auth Service     :3001 ──► PostgreSQL
-  └──► Content Service  :3002 ──► PostgreSQL
+Client / Browser
+       │
+       ▼
+  API Gateway  :3000
+  ├──► Auth Service       :3001 ──► PostgreSQL
+  ├──► Content Service    :3002 ──► PostgreSQL
+  └──► URL Shortener      :3003 ──► PostgreSQL
+
+  Auth Service ──[user.created]──► RabbitMQ ──► Notification Service ──► Resend API
 ```
 
 ---
@@ -34,10 +39,12 @@ API Gateway  :3000
 | Framework | NestJS 11 (monorepo) |
 | Language | TypeScript |
 | Database | PostgreSQL 16 |
-| ORM | Prisma v7 |
-| Authentication | JWT (access + refresh tokens) |
-| Password hashing | bcrypt |
-| Inter-service communication | HTTP via `@nestjs/axios` |
+| ORM | Prisma v7 + `@prisma/adapter-pg` |
+| Authentication | JWT (access 15min + refresh 7d), bcrypt, Google OAuth 2.0 |
+| Auth transport | `httpOnly` cookies (browser) + `Authorization` header (API clients) |
+| Inter-service HTTP | `@nestjs/axios` |
+| Message broker | RabbitMQ + `@nestjs/microservices` |
+| Email | Resend SDK |
 | Package manager | pnpm |
 | Containerisation | Docker + Docker Compose |
 
@@ -50,33 +57,46 @@ atlas/
 ├── apps/
 │   ├── gateway/               # API Gateway — port 3000
 │   │   └── src/
-│   │       ├── auth/          # JWT strategy, guard, proxy to auth-service
-│   │       └── content/       # Proxy to content-service (protected routes)
+│   │       ├── auth/          # JWT + Google strategies, guards, auth proxy
+│   │       ├── content/       # Proxy to content-service (protected)
+│   │       ├── url-shortener/ # Proxy to url-shortener (protected + public redirect)
+│   │       └── dummy/         # Public hardcoded endpoints
 │   │
 │   ├── auth-service/          # Auth Service — port 3001
 │   │   └── src/
-│   │       ├── auth/          # Register, login, refresh, DTOs, JWT strategy
-│   │       └── prisma/        # PrismaService (database connection)
+│   │       ├── auth/          # Register, login, refresh, Google find-or-create, DTOs
+│   │       └── prisma/        # PrismaService
 │   │
-│   └── content-service/       # Content Service — port 3002
+│   ├── content-service/       # Content Service — port 3002
+│   │   └── src/
+│   │       ├── content/       # Create, list, fetch with ownership checks
+│   │       └── prisma/        # PrismaService
+│   │
+│   ├── url-shortener/         # URL Shortener — port 3003
+│   │   └── src/
+│   │       ├── links/         # Create, list, delete short links + nightly cleanup cron
+│   │       └── redirect/      # Public slug resolution + click tracking
+│   │
+│   └── notification-service/  # No HTTP port — RabbitMQ microservice
 │       └── src/
-│           ├── content/       # Create, list, fetch content with ownership checks
-│           └── prisma/        # PrismaService (database connection)
+│           ├── notification/  # Consumes user.created, delegates to EmailService
+│           └── email/         # Resend SDK wrapper + welcome email template
 │
 ├── libs/
 │   └── contracts/             # Shared event types (imported as @app/contracts)
-│       └── src/
-│           └── events/
-│               └── user-created.event.ts
 │
 ├── prisma/
-│   └── schema.prisma          # User and Content database models
+│   └── schema.prisma          # User, Content, ShortLink, ClickEvent models
 │
-├── docker-compose.yml         # All 4 services wired together
-├── Dockerfile                 # Dev image (used by docker-compose)
-├── Dockerfile.prod            # Multi-stage production image
-├── nest-cli.json              # NestJS monorepo configuration
-└── .env                       # Local environment variables (not committed)
+├── docs/
+│   ├── notes.md               # Plain-English project overview
+│   ├── nest-notes.md          # NestJS concepts explained with code examples
+│   └── api-guide.md           # Full API reference with request/response examples
+│
+├── docker-compose.yml
+├── Dockerfile
+├── Dockerfile.prod
+└── .env.example
 ```
 
 ---
@@ -86,7 +106,7 @@ atlas/
 ### Prerequisites
 
 - [Docker](https://www.docker.com/) and Docker Compose
-- [Node.js 20+](https://nodejs.org/) and [pnpm](https://pnpm.io/) (for local dev only)
+- [Node.js 20+](https://nodejs.org/) and [pnpm](https://pnpm.io/) (local dev only)
 
 ### 1. Clone the repository
 
@@ -97,27 +117,40 @@ cd atlas
 
 ### 2. Create the `.env` file
 
-Create a `.env` file in the project root:
+Copy the example and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Minimum required values:
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/atlas?schema=public"
 
-JWT_ACCESS_SECRET="your-access-secret-here"
-JWT_REFRESH_SECRET="your-refresh-secret-here"
+JWT_ACCESS_SECRET="your-access-secret"
+JWT_REFRESH_SECRET="your-refresh-secret"
 
-GATEWAY_PORT=3000
-AUTH_SERVICE_PORT=3001
-CONTENT_SERVICE_PORT=3002
+RABBITMQ_URL="amqp://guest:guest@localhost:5672"
+RESEND_API_KEY="your-resend-key"
+SMTP_FROM="Atlas <no-reply@yourdomain.com>"
 
-AUTH_SERVICE_URL="http://localhost:3001"
-CONTENT_SERVICE_URL="http://localhost:3002"
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+GOOGLE_CALLBACK_URL="http://localhost:3000/auth/google/callback"
+
+NODE_ENV="development"
+ALLOWED_ORIGINS="http://localhost:5173"
+FRONTEND_URL="http://localhost:5173"
 ```
 
-Generate secure secrets with:
+Generate secure JWT secrets with:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
+
+Google OAuth credentials: [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → Create OAuth 2.0 Client. Add `http://localhost:3000/auth/google/callback` as an authorised redirect URI.
 
 ### 3. Start all services
 
@@ -125,17 +158,9 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 docker compose up
 ```
 
-This starts PostgreSQL, the Gateway, Auth Service, and Content Service. The first run will build the Docker images.
+Starts PostgreSQL, RabbitMQ, Gateway, Auth Service, Content Service, URL Shortener, and Notification Service. The first run builds the Docker images and runs database migrations automatically.
 
-### 4. Run database migrations
-
-In a separate terminal (while containers are running):
-
-```bash
-npx prisma migrate dev
-```
-
-### 5. Test it
+### 4. Test it
 
 ```bash
 # Register a user
@@ -148,13 +173,16 @@ curl -X POST http://localhost:3000/content \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <accessToken>" \
   -d '{"title": "Hello World", "body": "My first post."}'
+
+# Google OAuth — open in a browser
+open http://localhost:3000/auth/google?redirect=http://localhost:5173
 ```
 
 ---
 
 ## API Reference
 
-All requests go to the Gateway at `http://localhost:3000`.
+All requests go to the Gateway at `http://localhost:3000`. See [`docs/api-guide.md`](./docs/api-guide.md) for full request/response examples.
 
 ### Authentication
 
@@ -163,23 +191,31 @@ All requests go to the Gateway at `http://localhost:3000`.
 | `POST` | `/auth/register` | None | Create account, returns token pair |
 | `POST` | `/auth/login` | None | Login, returns token pair |
 | `POST` | `/auth/refresh` | None | Exchange refresh token for new pair |
+| `GET` | `/auth/google` | None | Initiate Google OAuth (browser only) — pass `?redirect=<url>` |
+| `GET` | `/auth/google/callback` | None | OAuth callback — sets cookies, redirects to frontend |
 
 ### Content
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `POST` | `/content` | Bearer token | Create a content item |
-| `GET` | `/content` | Bearer token | List all your content |
-| `GET` | `/content/:id` | Bearer token | Fetch a single content item |
+| `POST` | `/content` | Bearer / cookie | Create a content item |
+| `GET` | `/content` | Bearer / cookie | List all your content |
+| `GET` | `/content/:id` | Bearer / cookie | Fetch a single content item |
 
-**Add the token to protected requests:**
-```
-Authorization: Bearer <accessToken>
-```
+### URL Shortener
 
-**Access tokens** expire after 15 minutes. Use the `/auth/refresh` endpoint with your `refreshToken` to get a new pair without logging in again. Refresh tokens are valid for 7 days.
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/links` | Bearer / cookie | Create a short link (30-day expiry) |
+| `GET` | `/links` | Bearer / cookie | List your short links with click counts |
+| `DELETE` | `/links/:slug` | Bearer / cookie | Delete a short link |
+| `GET` | `/s/:slug` | None | Follow a short link (302 redirect) |
 
-For full request/response examples see [`api-guide.md`](./api-guide.md).
+### Token behaviour
+
+- **API clients (Postman, curl):** pass `Authorization: Bearer <accessToken>` on every protected request.
+- **Browser clients:** after Google OAuth, `access_token` and `refresh_token` cookies are set on `.ruturaj.xyz` automatically. Pass `credentials: 'include'` on every `fetch` call.
+- Access tokens expire after **15 minutes**. Use `/auth/refresh` to get a new pair.
 
 ---
 
@@ -187,17 +223,31 @@ For full request/response examples see [`api-guide.md`](./api-guide.md).
 
 ```
 users
-├── id           UUID (primary key)
-├── email        String (unique)
-├── password_hash String
-└── created_at   DateTime
+├── id            UUID (primary key)
+├── email         String (unique)
+├── password_hash String (nullable — Google-only accounts have no password)
+├── google_id     String (nullable, unique — set for Google OAuth accounts)
+└── created_at    DateTime
 
 content
-├── id           UUID (primary key)
-├── title        String
-├── body         String
-├── owner_id     UUID (foreign key → users.id)
-└── created_at   DateTime
+├── id        UUID (primary key)
+├── title     String
+├── body      String
+├── owner_id  UUID (foreign key → users.id)
+└── created_at DateTime
+
+ShortLink
+├── id         cuid (primary key)
+├── slug       String (unique)
+├── targetUrl  String
+├── userId     String
+├── expiresAt  DateTime
+└── createdAt  DateTime
+
+ClickEvent
+├── id           cuid (primary key)
+├── shortLinkId  String (foreign key → ShortLink.id, cascade delete)
+└── clickedAt    DateTime
 ```
 
 ---
@@ -206,18 +256,14 @@ content
 
 ### Run services individually (without Docker)
 
-Start PostgreSQL separately (or use Docker just for Postgres):
-
 ```bash
-docker compose up postgres
-```
+docker compose up postgres rabbitmq   # infrastructure only
 
-Then run each service in its own terminal:
-
-```bash
-pnpm run start:gateway    # port 3000
-pnpm run start:auth       # port 3001
-pnpm run start:content    # port 3002
+pnpm run start:gateway        # port 3000
+pnpm run start:auth           # port 3001
+pnpm run start:content        # port 3002
+pnpm run start:url-shortener  # port 3003
+pnpm run start:notification   # no port — connects to RabbitMQ
 ```
 
 ### Build for production
@@ -226,34 +272,24 @@ pnpm run start:content    # port 3002
 pnpm run build:gateway
 pnpm run build:auth
 pnpm run build:content
+pnpm run build:notification
 ```
 
-Or build all with the production Dockerfile:
+### Testing and linting
 
 ```bash
-docker build -f Dockerfile.prod -t atlas .
-```
-
-### Testing
-
-```bash
-pnpm test           # unit tests
-pnpm run test:cov   # with coverage report
-```
-
-### Linting
-
-```bash
+pnpm test
+pnpm run test:cov
 pnpm run lint
 ```
 
 ### Useful Docker commands
 
 ```bash
-docker compose up --build        # rebuild images and start
-docker compose up -d             # start in background
-docker compose down              # stop all containers
-docker compose logs auth-service # view logs for a specific service
+docker compose up --build         # rebuild images and start
+docker compose up -d              # start in background
+docker compose down               # stop all containers
+docker compose logs auth-service  # view logs for a specific service
 ```
 
 ### After changing the Prisma schema
@@ -267,15 +303,23 @@ npx prisma generate       # regenerate the TypeScript client
 
 ## Architecture Decisions
 
-**Single shared image** — All three services build from the same `Dockerfile`. The `command` in `docker-compose.yml` determines which app starts. This simplifies the build process for a monorepo while keeping services isolated at runtime.
+**Single shared image** — All services build from the same `Dockerfile`. The `command` in `docker-compose.yml` determines which app starts. Keeps the build simple for a monorepo while isolating services at runtime.
 
-**HTTP between services** — The Gateway uses `@nestjs/axios` to forward requests to services over HTTP. This is the simplest approach for an MVP and makes each service independently testable with a regular HTTP client.
+**Google OAuth at the gateway** — The `GoogleStrategy` (Passport) and Google credentials live in the gateway, not the auth-service. The gateway owns the external OAuth flow; the auth-service owns user identity. After Google confirms the profile, the gateway calls `POST /auth/google-profile` internally to find or create the user and issue a JWT pair.
 
-**User identity via header** — Once the Gateway validates a JWT, it extracts the `userId` and forwards it to the Content Service as the `x-user-id` header. The Content Service trusts this header because it is only reachable internally (not exposed to the public).
+**Cookie-based tokens for browsers** — After Google OAuth, tokens are set as `httpOnly` cookies scoped to `.ruturaj.xyz`. This means any subdomain frontend (`links.ruturaj.xyz`, etc.) shares the same session without any token management in JavaScript. API clients (Postman, curl) continue using the `Authorization` header — the JWT strategy accepts both.
 
-**Prisma v7 adapter pattern** — Prisma v7 removed the `url` field from `schema.prisma`. The database connection URL is now passed via the `PrismaPg` driver adapter directly in `PrismaService`. This is reflected in both `PrismaService` files and the `Dockerfile` (which runs `prisma generate` at build time).
+**`?redirect=` in OAuth state** — Frontends pass their origin via `?redirect=` when initiating Google login. The gateway stores this in the OAuth `state` parameter (round-tripped by Google) and redirects the browser there after setting cookies. No server-side session needed.
 
-**Shared contracts library** — `libs/contracts` defines the shape of internal events (e.g. `UserCreatedEvent`). Services import from `@app/contracts`. This keeps future integrations (message brokers, notification services) decoupled from the start.
+**CORS with `credentials: true`** — Required for browsers to send cookies cross-origin. The `ALLOWED_ORIGINS` env var controls which subdomains are permitted. In production this is set to the specific frontend origins.
+
+**HTTP between services** — The gateway uses `@nestjs/axios` to forward requests over HTTP. Simple, independently testable with any HTTP client.
+
+**User identity via header** — The gateway validates the JWT, extracts `userId`, and forwards it to downstream services as `x-user-id`. Services trust this header because they are not publicly reachable.
+
+**Event-driven notifications** — The auth-service publishes `user.created` to RabbitMQ after registration (and after Google sign-up for new accounts). The notification-service consumes it and sends a welcome email. The HTTP response is not delayed.
+
+**Prisma v7 adapter pattern** — `url` is no longer in `schema.prisma`. The connection string is passed via the `PrismaPg` driver adapter in `PrismaService`. `prisma generate` runs in the Dockerfile before TypeScript compilation.
 
 ---
 
@@ -283,16 +327,14 @@ npx prisma generate       # regenerate the TypeScript client
 
 | File | Contents |
 |---|---|
-| [`notes.md`](./notes.md) | Plain-English explanation of the project and each service |
-| [`nest-notes.md`](./nest-notes.md) | NestJS concepts used in this project, explained from scratch |
-| [`api-guide.md`](./api-guide.md) | Postman guide — every endpoint with request bodies and responses |
-| [`plan/Phase-1.md`](./plan/Phase-1.md) | Original MVP plan and architecture spec |
+| [`docs/notes.md`](./docs/notes.md) | Plain-English explanation of the project and each service |
+| [`docs/nest-notes.md`](./docs/nest-notes.md) | NestJS concepts used in this project, explained from scratch |
+| [`docs/api-guide.md`](./docs/api-guide.md) | Full API reference — every endpoint with examples for both Postman and browser |
 
 ---
 
 ## Roadmap
 
-- [ ] Notification Service — listens for `user.created` events, sends welcome emails
 - [ ] Redis caching — cache frequently read content
 - [ ] Job Worker Service — background task processing with queues
 - [ ] RBAC — role-based access control (admin, editor, viewer)
