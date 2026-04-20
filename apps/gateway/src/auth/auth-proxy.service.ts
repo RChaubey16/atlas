@@ -2,6 +2,7 @@ import { HttpException, Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
+import { GoogleProfile } from './strategies/google.strategy';
 
 @Injectable()
 export class AuthProxyService {
@@ -36,6 +37,17 @@ export class AuthProxyService {
     try {
       const { data } = await firstValueFrom(
         this.http.post<unknown>(`${this.authUrl}/auth/refresh`, body),
+      );
+      return data;
+    } catch (err) {
+      this.rethrowUpstreamError(err);
+    }
+  }
+
+  async googleProfile(profile: GoogleProfile): Promise<unknown> {
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post<unknown>(`${this.authUrl}/auth/google-profile`, profile),
       );
       return data;
     } catch (err) {

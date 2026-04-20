@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleProfileDto } from './dto/google-profile.dto';
 import { USER_CREATED_EVENT, UserCreatedEvent } from '@app/contracts';
 
 export interface TokenPair {
@@ -53,13 +54,43 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-    if (!user) {
+    if (!user || !user.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    return this.issueTokens(user.id, user.email);
+  }
+
+  async findOrCreateGoogleUser(dto: GoogleProfileDto): Promise<TokenPair> {
+    let user = await this.prisma.user.findUnique({
+      where: { googleId: dto.googleId },
+    });
+
+    if (!user) {
+      // Link to existing email/password account if email matches
+      user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (user) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: { googleId: dto.googleId },
+        });
+      } else {
+        user = await this.prisma.user.create({
+          data: { email: dto.email, googleId: dto.googleId },
+        });
+
+        const event: UserCreatedEvent = {
+          userId: user.id,
+          email: user.email,
+          createdAt: user.createdAt,
+        };
+        this.notificationClient.emit(USER_CREATED_EVENT, event);
+      }
     }
 
     return this.issueTokens(user.id, user.email);

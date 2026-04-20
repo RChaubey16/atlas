@@ -1,7 +1,10 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Request, Response } from 'express';
 
 import { AuthProxyService } from './auth-proxy.service';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
+import { GoogleProfile } from './strategies/google.strategy';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -35,5 +38,22 @@ export class AuthProxyController {
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {
     return this.authProxy.refresh(dto);
+  }
+
+  @ApiOperation({ summary: 'Initiate Google OAuth login' })
+  @ApiResponse({ status: 302, description: 'Redirects to Google consent screen' })
+  @UseGuards(GoogleAuthGuard)
+  @Get('google')
+  googleLogin() {
+    // Passport redirects to Google — no body needed
+  }
+
+  @ApiOperation({ summary: 'Google OAuth callback — returns token pair' })
+  @ApiResponse({ status: 200, description: 'Access and refresh tokens', type: TokenPairDto })
+  @UseGuards(GoogleAuthGuard)
+  @Get('google/callback')
+  async googleCallback(@Req() req: Request, @Res() res: Response) {
+    const tokens = await this.authProxy.googleProfile(req.user as GoogleProfile);
+    res.json(tokens);
   }
 }
