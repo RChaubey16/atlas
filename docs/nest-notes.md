@@ -717,27 +717,53 @@ NestJS supports running services as **microservices** — processes that communi
 
 ### Bootstrapping a Microservice
 
-Instead of `NestFactory.create()`, you use `NestFactory.createMicroservice()`:
+A pure microservice (no HTTP) uses `NestFactory.createMicroservice()`:
+
+```ts
+const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+  NotificationModule,
+  {
+    transport: Transport.RMQ,
+    options: {
+      urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
+      queue: 'notification_queue',
+      queueOptions: { durable: true },
+    },
+  },
+);
+await app.listen();  // connects to RabbitMQ — no HTTP port opened
+```
+
+### Bootstrapping a Hybrid App (HTTP + microservice in one process)
+
+The Notification Service runs as a **hybrid** — it handles both HTTP requests and RabbitMQ messages in the same process. You start with `NestFactory.create()` (HTTP), then attach the microservice transport with `connectMicroservice()`:
 
 ```ts
 // apps/notification-service/src/main.ts
 async function bootstrap() {
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    NotificationModule,
-    {
-      transport: Transport.RMQ,          // use RabbitMQ
-      options: {
-        urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
-        queue: 'notification_queue',
-        queueOptions: { durable: true }, // queue survives RabbitMQ restarts
-      },
+  const app = await NestFactory.create(NotificationModule);
+  //          ↑ standard HTTP app — enables body parsing, global pipes, etc.
+
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.RMQ,
+    options: {
+      urls: [process.env.RABBITMQ_URL ?? 'amqp://localhost:5672'],
+      queue: 'notification_queue',
+      queueOptions: { durable: true },
     },
-  );
-  await app.listen();  // connects to RabbitMQ and starts consuming messages
+  });
+
+  await app.startAllMicroservices();
+  //    ↑ connects to RabbitMQ and starts consuming messages
+
+  await app.listen(process.env.NOTIFICATION_SERVICE_PORT ?? 3004);
+  //    ↑ also opens an HTTP port for direct API calls
 }
 ```
 
-`app.listen()` here does not open an HTTP port — it connects to the queue and blocks, waiting for messages.
+The same controller class can have both `@EventPattern` methods (consumed via RabbitMQ) and `@Post` methods (consumed via HTTP) — NestJS routes each message to the right handler based on the transport context.
+
+**One important nuance with guards in hybrid apps:** guards that call `context.switchToHttp()` (like `InternalKeyGuard`) only apply when the method is called via HTTP. When an `@EventPattern` handler fires via RabbitMQ, the execution context is `RpcContext`, not `HttpContext`. A method-level `@UseGuards()` on the HTTP handler does not affect the RMQ handler in the same controller, so the two can coexist safely.
 
 ### Consuming Events — `@EventPattern` and `@Payload`
 
@@ -818,16 +844,16 @@ export class AuthService {
 
 Normally NestJS injects by type — `private readonly jwtService: JwtService` works automatically because TypeScript knows the type. String tokens (`'NOTIFICATION_SERVICE'`) are used when the same type (`ClientProxy`) could refer to different clients (e.g., one for notifications, one for analytics). The `@Inject('...')` decorator tells NestJS which specific client to use.
 
-### HTTP Service vs Microservice
+### HTTP Service vs Microservice vs Hybrid
 
-| | HTTP Service (gateway, auth, content) | Microservice (notification) |
-|---|---|---|
-| Bootstrap | `NestFactory.create()` | `NestFactory.createMicroservice()` |
-| Transport | HTTP (port) | RabbitMQ (queue) |
-| Receives | HTTP requests | Queue messages |
-| Route handler | `@Get()`, `@Post()` | `@EventPattern()` |
-| Data extraction | `@Body()`, `@Param()` | `@Payload()` |
-| Response | Returns data to caller | Acknowledges message |
+| | HTTP Service (gateway, auth, content, url-shortener) | Pure Microservice | Hybrid (notification) |
+|---|---|---|---|
+| Bootstrap | `NestFactory.create()` | `NestFactory.createMicroservice()` | `NestFactory.create()` + `connectMicroservice()` |
+| Transport | HTTP (port) | RabbitMQ (queue) | Both |
+| Receives | HTTP requests | Queue messages | HTTP requests AND queue messages |
+| Route handler | `@Get()`, `@Post()` | `@EventPattern()` | Both, in the same controller |
+| Data extraction | `@Body()`, `@Param()` | `@Payload()` | Both |
+| Response | Returns data to caller | Acknowledges message | Returns data (HTTP) or acknowledges (RMQ) |
 
 ---
 
@@ -917,6 +943,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Lifecycle hooks | `OnModuleInit`, `OnModuleDestroy` | PrismaService (all services) |
 | Monorepo | `nest-cli.json` | Root config |
 | HTTP bootstrap | `NestFactory.create()` | Gateway, auth, content, url-shortener `main.ts` |
-| Microservice bootstrap | `NestFactory.createMicroservice()` | Notification service `main.ts` |
-| Event consumer | `@EventPattern()`, `@Payload()` | `NotificationService.handleUserCreated` |
+| Hybrid bootstrap | `NestFactory.create()` + `connectMicroservice()` + `startAllMicroservices()` | Notification service `main.ts` |
+| Event consumer | `@EventPattern()`, `@Payload()` | `NotificationController.handleUserCreated` |
 | Event publisher | `ClientsModule`, `ClientProxy`, `.emit()` | Auth service module + service |
+| Custom guard | `CanActivate` + `context.switchToHttp()` | `InternalKeyGuard` in notification service |

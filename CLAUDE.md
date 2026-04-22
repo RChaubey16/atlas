@@ -16,7 +16,7 @@ All features are **complete and merged to `main`**.
 - Content CRUD with ownership validation
 - URL Shortener — create/list/delete short links, click tracking, 30-day expiry, nightly cleanup cron
 - API Gateway proxying all traffic with JWT guard
-- Notification Service — RabbitMQ microservice that sends welcome emails on `user.created` via Resend
+- Notification Service — hybrid HTTP (port 3004) + RabbitMQ service; template registry with `welcome`, `password-reset`, `feature-announcement`; `POST /notify/send` guarded by `x-internal-key`; gateway proxies it with JWT auth
 - Auth Service publishes `user.created` events to RabbitMQ via `ClientProxy`
 - Docker Compose running all 7 services (gateway, auth, content, url-shortener, postgres, rabbitmq, notification)
 - Prisma v7 with `@prisma/adapter-pg` (driver adapter required — no `url` in schema)
@@ -125,9 +125,14 @@ GATEWAY_PORT=3000
 AUTH_SERVICE_PORT=3001
 CONTENT_SERVICE_PORT=3002
 URL_SHORTENER_PORT=3003
+NOTIFICATION_SERVICE_PORT=3004
 AUTH_SERVICE_URL="http://localhost:3001"
 CONTENT_SERVICE_URL="http://localhost:3002"
 URL_SHORTENER_URL="http://localhost:3003"
+NOTIFICATION_SERVICE_URL="http://localhost:3004"
+
+# Internal service-to-service auth (notification service)
+INTERNAL_NOTIFICATION_KEY="<generate with: openssl rand -hex 32>"
 
 # RabbitMQ (notification-service + auth-service)
 RABBITMQ_URL="amqp://guest:guest@localhost:5672"
@@ -165,6 +170,7 @@ Docker Compose overrides service URLs and `DATABASE_URL` to use container names 
 | GET | `/links` | Cookie / Bearer | List own short links with click counts |
 | DELETE | `/links/:slug` | Cookie / Bearer | Delete a short link |
 | GET | `/s/:slug` | No | Resolve short link (302 redirect) |
+| POST | `/notify/send` | Cookie / Bearer | Send a templated email (`templateId`, `to[]`, `templateData`) |
 
 ## Commands
 

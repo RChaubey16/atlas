@@ -44,6 +44,8 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       CONTENT_SERVICE_URL: http://content-service:3002
       URL_SHORTENER_URL: http://url-shortener:3003
+      NOTIFICATION_SERVICE_URL: http://notification-service:3004
+      INTERNAL_NOTIFICATION_KEY: ${INTERNAL_NOTIFICATION_KEY}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
@@ -56,6 +58,7 @@ services:
       - auth-service
       - content-service
       - url-shortener
+      - notification-service
 
   auth-service:
     build: .
@@ -114,14 +117,18 @@ services:
   notification-service:
     build: .
     container_name: atlas-notification-service
+    ports:
+      - "3004:3004"
     volumes:
       - .:/app
       - /app/node_modules
     command: pnpm run start:notification
     environment:
+      NOTIFICATION_SERVICE_PORT: 3004
       RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
       RESEND_API_KEY: ${RESEND_API_KEY}
       SMTP_FROM: ${SMTP_FROM}
+      INTERNAL_NOTIFICATION_KEY: ${INTERNAL_NOTIFICATION_KEY}
     depends_on:
       rabbitmq:
         condition: service_healthy
