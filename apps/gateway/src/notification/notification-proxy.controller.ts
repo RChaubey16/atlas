@@ -11,11 +11,11 @@ import { SendEmailDto } from './dto/send-email.dto';
 export class NotificationProxyController {
   constructor(private readonly notificationProxy: NotificationProxyService) {}
 
+  @Post('send')
   @ApiOperation({ summary: 'Send an email using a named template' })
   @ApiResponse({ status: 200, description: 'Number of emails sent' })
   @ApiResponse({ status: 400, description: 'Unknown templateId or invalid payload' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
-  @Post('send')
   sendEmail(@Body() dto: SendEmailDto) {
     return this.notificationProxy.sendEmail(dto);
   }

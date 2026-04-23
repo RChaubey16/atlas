@@ -33,6 +33,7 @@ Svc]    Service]      Service]          Service]
 
 [Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ]
 [API Gateway]  --[POST /notify/send  ]--> [ Notification Service ] (internal HTTP, x-internal-key)
+[API Gateway]  --[GET  /templates    ]--> reads from libs/contracts (no downstream service call)
 ```
 
 Every request from the outside world goes through the **Gateway first**. The Gateway decides where to send it and, for protected routes, checks that the user has a valid pass (JWT token) before letting them through.
@@ -40,6 +41,8 @@ Every request from the outside world goes through the **Gateway first**. The Gat
 When a user registers, the Auth Service publishes a `user.created` event to **RabbitMQ**. The Notification Service receives that event and sends a welcome email — completely decoupled from the HTTP request.
 
 The Gateway also exposes `POST /notify/send` (JWT-protected), which proxies to the Notification Service's internal HTTP endpoint. This lets any authenticated caller send a templated email directly, without publishing a RabbitMQ event.
+
+The Gateway serves `GET /templates` and `GET /templates/:id/preview` with no auth required. These endpoints read directly from the shared `libs/contracts` template registry — no downstream service call is made. A frontend can use them to display what templates are available and render a visual preview of each one.
 
 Short link management routes (`/links/*`) are guarded by the same JWT check. The public redirect route (`/s/:slug`) intentionally bypasses the guard — anyone can follow a short link without an account.
 
@@ -70,6 +73,7 @@ Key files:
 - `apps/gateway/src/url-shortener/url-shortener-proxy.service.ts` — forwards `/links/*` calls to the URL Shortener Service and handles slug resolution for redirects
 - `apps/gateway/src/url-shortener/url-shortener-proxy.controller.ts` — guarded by `JwtAuthGuard`; passes `userId` from the token down to the URL Shortener
 - `apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts` — handles `GET /s/:slug` with no guard; issues a 302 redirect to the client
+- `apps/gateway/src/templates/templates.controller.ts` — handles `GET /templates` (list) and `GET /templates/:id/preview` (rendered HTML); public, no guard; reads directly from `libs/contracts`
 
 ---
 
@@ -179,7 +183,7 @@ Key files:
 
 ## Shared Code (`libs/contracts/`)
 
-Services need to agree on what data looks like when they talk to each other. This library holds those shared definitions.
+Services need to agree on what data looks like when they talk to each other. This library holds those shared definitions — both TypeScript interfaces (types only) and runtime objects (values that exist at runtime).
 
 **`libs/contracts/src/events/user-created.event.ts`**
 
@@ -203,9 +207,35 @@ The shape of the body sent to `POST /notify/send`. Shared between the Gateway (w
 export interface SendEmailCommand {
   templateId: string;              // e.g. "welcome", "password-reset"
   to: string[];                    // one or more recipient addresses
-  templateData: Record<string, unknown>;  // template-specific fields
+  templateData: Record<string, string>;  // template-specific fields
 }
 ```
+
+**`libs/contracts/src/templates/`**
+
+Template definitions shared between the Gateway's public listing endpoints and any future consumer. Unlike the event/command interfaces above (which are types only), this directory exports real runtime values — objects that exist at runtime and can be iterated over.
+
+```ts
+// template.interface.ts — the shape every template must satisfy
+export interface TemplateDefinition {
+  id: string;
+  name: string;
+  description: string;
+  subject: string;
+  fields: TemplateField[];          // metadata about each data field
+  previewData: Record<string, string>;  // sample values used for preview rendering
+  html(data: Record<string, string>): string;
+}
+
+// registry.ts — the live map imported by the gateway controller
+export const TEMPLATES: Record<string, TemplateDefinition> = {
+  'welcome': welcomeTemplate,
+  'password-reset': passwordResetTemplate,
+  'feature-announcement': featureAnnouncementTemplate,
+};
+```
+
+The Gateway's `TemplatesController` imports `TEMPLATES` directly and serves it over HTTP — no database query, no downstream service call. Adding a new template means adding one file to `libs/contracts/src/templates/` and registering it in `registry.ts`.
 
 ---
 

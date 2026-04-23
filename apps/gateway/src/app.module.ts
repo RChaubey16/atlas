@@ -9,6 +9,7 @@ import { ContentModule } from './content/content.module';
 import { DummyModule } from './dummy/dummy.module';
 import { UrlShortenerModule } from './url-shortener/url-shortener.module';
 import { NotificationModule } from './notification/notification.module';
+import { TemplatesModule } from './templates/templates.module';
 
 @Module({
   imports: [
@@ -39,9 +40,11 @@ import { NotificationModule } from './notification/notification.module';
     AuthModule,
     ContentModule,
     DummyModule,
-    UrlShortenerModule,NotificationModule
+    UrlShortenerModule,
+    NotificationModule,
+    TemplatesModule
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
