@@ -22,21 +22,24 @@ You (the user / app)
         ▼
   [ API Gateway ]        ← The only door into the system (port 3000)
         |
-   ┌────┼────────────────┐
-   ▼    ▼                ▼
-[Auth  [Content     [URL Shortener
-Svc]    Service]      Service]
-   |        |              |
-   └────────┴──────────────┘
+   ┌────┼────────────────┬──────────────────┐
+   ▼    ▼                ▼                  ▼
+[Auth  [Content     [URL Shortener    [Notification
+Svc]    Service]      Service]          Service]
+   |        |              |                |
+   └────────┴──────────────┘           Resend API
                  ▼
            [ PostgreSQL ]  ← The database where everything is saved
 
-[Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ] --> Resend API
+[Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ]
+[API Gateway]  --[POST /notify/send  ]--> [ Notification Service ] (internal HTTP, x-internal-key)
 ```
 
 Every request from the outside world goes through the **Gateway first**. The Gateway decides where to send it and, for protected routes, checks that the user has a valid pass (JWT token) before letting them through.
 
-When a user registers, the Auth Service publishes a `user.created` event to **RabbitMQ**. The Notification Service listens for this event in the background and sends a welcome email via SMTP — completely decoupled from the HTTP request.
+When a user registers, the Auth Service publishes a `user.created` event to **RabbitMQ**. The Notification Service receives that event and sends a welcome email — completely decoupled from the HTTP request.
+
+The Gateway also exposes `POST /notify/send` (JWT-protected), which proxies to the Notification Service's internal HTTP endpoint. This lets any authenticated caller send a templated email directly, without publishing a RabbitMQ event.
 
 Short link management routes (`/links/*`) are guarded by the same JWT check. The public redirect route (`/s/:slug`) intentionally bypasses the guard — anyone can follow a short link without an account.
 
@@ -116,27 +119,37 @@ Key files:
 
 ---
 
-### 4. Notification Service (`apps/notification-service/`) — No HTTP port
+### 4. Notification Service (`apps/notification-service/`) — Port 3004 (HTTP) + RabbitMQ
 
-**Listens for events from RabbitMQ and sends transactional emails.**
+**A general-purpose email sending service with a template registry.**
 
-Unlike the other services, the Notification Service is not an HTTP server — it is a **NestJS microservice** that connects directly to RabbitMQ and waits for messages. It never receives requests from the Gateway or any HTTP client.
+Unlike the other services, the Notification Service runs as a **hybrid** — it is both a standard HTTP server (port 3004) and a RabbitMQ microservice in the same process. This means it can receive emails triggers two ways: via an event from the message queue, or via a direct HTTP call from the Gateway.
 
-When the Auth Service publishes a `user.created` event after a successful registration, the Notification Service receives that message and sends a welcome email to the new user via the Resend API.
+The HTTP endpoint (`POST /notify/send`) is **internal-only**, protected by a shared secret header (`x-internal-key`). The Gateway validates the caller's JWT first, then forwards the request to the Notification Service with the internal key. External clients never talk to port 3004 directly.
 
-This pattern is called **event-driven architecture**: services communicate by publishing and consuming events rather than making direct HTTP calls. The Auth Service does not know or care whether the Notification Service exists — it just fires an event and moves on.
+**Template registry** — instead of hardcoding a single email template, the service maintains a named registry of templates. Callers identify the template they want by a string ID and supply the template-specific data as a free-form object.
+
+Available templates:
+
+| Template ID | Required data | Optional data |
+|---|---|---|
+| `welcome` | `email` | — |
+| `password-reset` | `email`, `resetLink` | — |
+| `feature-announcement` | `email`, `featureName`, `description` | `ctaLabel`, `ctaUrl` |
 
 What it does:
 
-- **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup.
-- **Send welcome email** — on each event, calls Resend with a pre-defined `WelcomeEmailTemplate`.
+- **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup; sends a welcome email when a new user registers.
+- **Handle `POST /notify/send`** — accepts `{ templateId, to[], templateData }`, looks up the template, sends to all recipients in parallel via Resend.
 - **Fail gracefully** — Resend errors are caught and logged; the message is acknowledged so the queue is not blocked.
 
 Key files:
-- `apps/notification-service/src/notification/notification.service.ts` — the `@EventPattern` handler that receives the event and delegates to EmailService
-- `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; reads `RESEND_API_KEY` and `SMTP_FROM` from environment variables
-- `apps/notification-service/src/email/templates/welcome.template.ts` — the HTML email template; implements the `EmailTemplate` interface
-- `apps/notification-service/src/email/email-template.interface.ts` — the interface; adding a new email type means adding a new class that implements this
+- `apps/notification-service/src/notification/notification.controller.ts` — `@EventPattern` handler (RMQ) and `POST /notify/send` (HTTP), guarded by `InternalKeyGuard`
+- `apps/notification-service/src/notification/notification.service.ts` — `handleUserCreated` and `sendEmail` logic; uses `TemplateRegistry`
+- `apps/notification-service/src/email/template-registry.ts` — maps template IDs to template instances; throws `NotFoundException` for unknown IDs
+- `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; sends the rendered HTML
+- `apps/notification-service/src/email/templates/` — one file per template; each implements `EmailTemplate<T>` with its own typed data shape
+- `apps/notification-service/src/guards/internal-key.guard.ts` — rejects HTTP requests where `x-internal-key` does not match `INTERNAL_NOTIFICATION_KEY`
 
 ---
 
@@ -173,7 +186,6 @@ Services need to agree on what data looks like when they talk to each other. Thi
 When a user registers, the Auth Service publishes a `user.created` event to RabbitMQ. The Notification Service listens for this event and sends a welcome email. Both services import this shared contract so they agree on the exact shape of the message:
 
 ```ts
-// Every service that produces or consumes "user.created" uses this shape
 export interface UserCreatedEvent {
   userId: string;
   email: string;
@@ -182,6 +194,18 @@ export interface UserCreatedEvent {
 ```
 
 Having the contract in a shared library means neither service needs to know anything about the other — they only need to agree on the message shape. A third service (e.g., an analytics service) could listen to the same event without any changes to the Auth Service or Notification Service.
+
+**`libs/contracts/src/commands/send-email.command.ts`**
+
+The shape of the body sent to `POST /notify/send`. Shared between the Gateway (which constructs the request) and the Notification Service (which receives it):
+
+```ts
+export interface SendEmailCommand {
+  templateId: string;              // e.g. "welcome", "password-reset"
+  to: string[];                    // one or more recipient addresses
+  templateData: Record<string, unknown>;  // template-specific fields
+}
+```
 
 ---
 
@@ -290,6 +314,23 @@ Meanwhile, asynchronously:
 7. Gateway passes the response back to the client
 ```
 
+### Sending a Templated Email
+
+```
+1. Client sends:  POST /notify/send  { templateId, to[], templateData }
+                  Authorization: Bearer <accessToken>
+2. Gateway checks the JWT token
+3. Gateway's NotificationProxyService forwards to http://notification-service:3004/notify/send
+   with header x-internal-key: <INTERNAL_NOTIFICATION_KEY>
+4. NotificationService.InternalKeyGuard validates the key
+5. TemplateRegistry looks up the templateId — throws 404 if unknown
+6. EmailService calls Resend for each recipient in parallel
+7. Returns { sent: <count> } back through the Gateway to the client
+
+If the templateId is unknown:
+  Step 5 throws NotFoundException → 404 propagates back to the client
+```
+
 ### Creating and Following a Short Link
 
 ```
@@ -332,6 +373,7 @@ Services will be available at:
 - Auth Service (internal): `http://localhost:3001`
 - Content Service (internal): `http://localhost:3002`
 - URL Shortener Service (internal): `http://localhost:3003`
+- Notification Service (internal): `http://localhost:3004`
 - RabbitMQ management UI: `http://localhost:15672` (guest / guest — local dev only)
 
 ---
@@ -348,6 +390,9 @@ Sensitive settings are stored in a `.env` file (not committed to git). Key ones:
 | `RABBITMQ_URL` | Connection URL for RabbitMQ (e.g. `amqp://guest:guest@localhost:5672`) |
 | `RESEND_API_KEY` | API key for the Resend email service |
 | `SMTP_FROM` | The `From` address on outgoing emails (e.g. `Atlas <no-reply@yourdomain.com>`) |
+| `INTERNAL_NOTIFICATION_KEY` | Shared secret between the Gateway and Notification Service; generate with `openssl rand -hex 32` |
+| `NOTIFICATION_SERVICE_PORT` | Port the Notification Service HTTP server listens on (default `3004`) |
+| `NOTIFICATION_SERVICE_URL` | Base URL the Gateway uses to reach the Notification Service (e.g. `http://localhost:3004`) |
 | `URL_SHORTENER_PORT` | Port the URL Shortener Service listens on (default `3003`) |
 | `URL_SHORTENER_URL` | Base URL the Gateway uses to reach the URL Shortener (e.g. `http://localhost:3003`) |
 | `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console |

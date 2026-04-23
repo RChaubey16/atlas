@@ -1,9 +1,13 @@
 import { EmailTemplate } from '../email-template.interface';
 
-export class WelcomeEmailTemplate implements EmailTemplate {
+interface WelcomeData extends Record<string, unknown> {
+  email: string;
+}
+
+export class WelcomeEmailTemplate implements EmailTemplate<WelcomeData> {
   subject = 'Welcome to Atlas!';
 
-  html(data: { email: string }): string {
+  html(data: WelcomeData): string {
     return `
       <h1>Welcome to Atlas!</h1>
       <p>Hi ${data.email},</p>

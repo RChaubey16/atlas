@@ -578,6 +578,68 @@ Browsers and HTTP clients that follow redirects will land directly on the target
 
 ---
 
+## Notification Endpoints
+
+Notification endpoints **require** authentication.
+
+- **Browser clients** — cookies sent automatically.
+- **Postman / API clients** — use `Authorization: Bearer <accessToken>`.
+
+---
+
+### 12. Send a Templated Email
+
+Sends an email to one or more recipients using a named template. The gateway forwards the request to the Notification Service over an internal channel — callers only need a valid JWT.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/notify/send` |
+| **Auth** | Cookie or Bearer Token |
+
+**Available template IDs:**
+
+| `templateId` | Required `templateData` fields | Optional fields |
+|---|---|---|
+| `welcome` | `email` | — |
+| `password-reset` | `email`, `resetLink` | — |
+| `feature-announcement` | `email`, `featureName`, `description` | `ctaLabel`, `ctaUrl` |
+
+> `email` is automatically set to each recipient address and does not need to be included in `templateData`.
+
+**Body (raw JSON):**
+```json
+{
+  "templateId": "password-reset",
+  "to": ["alice@example.com"],
+  "templateData": {
+    "resetLink": "https://app.example.com/reset?token=abc123"
+  }
+}
+```
+
+**Success Response — `200 OK`:**
+```json
+{
+  "sent": 1
+}
+```
+
+**Error Responses:**
+
+`404 Not Found` — unknown `templateId`:
+```json
+{
+  "message": "Email template \"unknown-template\" not found",
+  "error": "Not Found",
+  "statusCode": 404
+}
+```
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
 ## Full Workflow — Step by Step
 
 ### API client (Postman)
@@ -644,6 +706,22 @@ DELETE /links/demo
 Authorization: Bearer <accessToken>
 ```
 
+**Step 10 — Send a templated email**
+```
+POST /notify/send
+Authorization: Bearer <accessToken>
+Body: {
+  "templateId": "feature-announcement",
+  "to": ["test@example.com"],
+  "templateData": {
+    "featureName": "URL Shortener",
+    "description": "You can now create short links with click tracking.",
+    "ctaLabel": "Try it now",
+    "ctaUrl": "http://localhost:3000/links"
+  }
+}
+```
+
 ---
 
 ### Browser client (Google OAuth)
@@ -686,3 +764,4 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/links` | GET | Yes | List your short links with click counts |
 | `/links/:slug` | DELETE | Yes | Delete a short link |
 | `/s/:slug` | GET | No | Follow a short link (302 redirect) |
+| `/notify/send` | POST | Yes | Send a templated email (`welcome`, `password-reset`, `feature-announcement`) |
