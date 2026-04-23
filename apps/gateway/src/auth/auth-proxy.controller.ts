@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 
 import { AuthProxyService } from './auth-proxy.service';
 import { GoogleAuthGuard } from './guards/google-auth.guard';

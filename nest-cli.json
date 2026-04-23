@@ -15,7 +15,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/gateway/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/gateway/tsconfig.app.json"
+        "tsConfigPath": "apps/gateway/tsconfig.app.json",
+        "webpack": true
       }
     },
     "auth-service": {
