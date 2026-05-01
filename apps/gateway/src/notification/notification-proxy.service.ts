@@ -1,4 +1,5 @@
 import { HttpException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
@@ -6,11 +7,19 @@ import { SendEmailCommand } from '@app/contracts';
 
 @Injectable()
 export class NotificationProxyService {
-  private readonly notificationUrl =
-    process.env.NOTIFICATION_SERVICE_URL ?? 'http://localhost:3004';
-  private readonly internalKey = process.env.INTERNAL_NOTIFICATION_KEY ?? '';
+  private readonly notificationUrl: string;
+  private readonly internalKey: string;
 
-  constructor(private readonly http: HttpService) {}
+  constructor(
+    private readonly http: HttpService,
+    configService: ConfigService,
+  ) {
+    this.notificationUrl = configService.get<string>(
+      'NOTIFICATION_SERVICE_URL',
+      'http://localhost:3004',
+    );
+    this.internalKey = configService.getOrThrow<string>('INTERNAL_NOTIFICATION_KEY');
+  }
 
   async sendEmail(command: SendEmailCommand): Promise<unknown> {
     try {

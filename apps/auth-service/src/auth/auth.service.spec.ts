@@ -1,5 +1,6 @@
 import { USER_CREATED_EVENT } from '@app/contracts';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 
@@ -24,6 +25,17 @@ describe('AuthService', () => {
     emit: jest.fn(),
   };
 
+  const mockConfigService = {
+    getOrThrow: jest.fn((key: string) => {
+      const config: Record<string, string> = {
+        JWT_ACCESS_SECRET: 'test-access-secret',
+        JWT_REFRESH_SECRET: 'test-refresh-secret',
+      };
+      if (!config[key]) throw new Error(`Missing required config: ${key}`);
+      return config[key];
+    }),
+  };
+
   const createdUser = {
     id: 'user-id-123',
     email: 'test@example.com',
@@ -38,6 +50,7 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: JwtService, useValue: mockJwtService },
         { provide: 'NOTIFICATION_SERVICE', useValue: mockNotificationClient },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   Inject,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
 import * as bcrypt from 'bcrypt';
@@ -20,12 +21,19 @@ export interface TokenPair {
 
 @Injectable()
 export class AuthService {
+  private readonly accessSecret: string;
+  private readonly refreshSecret: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     @Inject('NOTIFICATION_SERVICE')
     private readonly notificationClient: ClientProxy,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.accessSecret = configService.getOrThrow<string>('JWT_ACCESS_SECRET');
+    this.refreshSecret = configService.getOrThrow<string>('JWT_REFRESH_SECRET');
+  }
 
   async register(dto: RegisterDto): Promise<TokenPair> {
     const existing = await this.prisma.user.findUnique({
@@ -100,7 +108,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify<{ sub: string; email: string }>(
         refreshToken,
-        { secret: process.env.JWT_REFRESH_SECRET },
+        { secret: this.refreshSecret },
       );
       return this.issueTokens(payload.sub, payload.email);
     } catch {
@@ -111,11 +119,11 @@ export class AuthService {
   private issueTokens(userId: string, email: string): TokenPair {
     const payload = { sub: userId, email };
     const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_ACCESS_SECRET,
+      secret: this.accessSecret,
       expiresIn: 60 * 15,
     });
     const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET,
+      secret: this.refreshSecret,
       expiresIn: 60 * 60 * 24 * 7,
     });
     return { accessToken, refreshToken };

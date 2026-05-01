@@ -2,17 +2,23 @@ import { UserCreatedEvent } from '@app/contracts';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { EmailService } from '../email/email.service';
+import { TemplateRegistry } from '../email/template-registry';
+import { WelcomeEmailTemplate } from '../email/templates/welcome.template';
 import { NotificationService } from './notification.service';
 
 describe('NotificationService', () => {
   let service: NotificationService;
   const mockEmailService = { sendMail: jest.fn() };
+  const mockTemplateRegistry = {
+    get: jest.fn().mockReturnValue(new WelcomeEmailTemplate()),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationService,
         { provide: EmailService, useValue: mockEmailService },
+        { provide: TemplateRegistry, useValue: mockTemplateRegistry },
       ],
     }).compile();
 
@@ -36,6 +42,7 @@ describe('NotificationService', () => {
       expect(mockEmailService.sendMail).toHaveBeenCalledWith(
         'newuser@example.com',
         expect.objectContaining({ subject: 'Welcome to Atlas!' }),
+        expect.objectContaining({ email: 'newuser@example.com' }),
       );
     });
 
