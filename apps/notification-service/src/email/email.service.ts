@@ -11,7 +11,7 @@ export class EmailService {
 
   constructor(configService: ConfigService) {
     this.resend = new Resend(
-      configService.getOrThrow<string>('RESEND_API_KEY') as string,
+      configService.getOrThrow<string>('RESEND_API_KEY'),
     );
     this.from = configService.get<string>(
       'SMTP_FROM',
