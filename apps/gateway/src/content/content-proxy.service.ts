@@ -44,7 +44,10 @@ export class ContentProxyService {
       };
       const message =
         typeof data?.message === 'string' ? data.message : 'An error occurred';
-      throw new HttpException({ ...data, displayErrorMessage: message }, status);
+      throw new HttpException(
+        { ...data, displayErrorMessage: message },
+        status,
+      );
     }
     throw err as Error;
   }

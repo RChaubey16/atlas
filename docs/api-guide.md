@@ -640,6 +640,98 @@ Sends an email to one or more recipients using a named template. The gateway for
 
 ---
 
+## Template Endpoints
+
+Template endpoints are **public** — no authentication required. Use them to display the available email templates and preview their rendered HTML.
+
+---
+
+### 13. List Available Templates
+
+Returns every email template in the system along with its field definitions.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/templates` |
+| **Auth** | None |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "id": "welcome",
+    "name": "Welcome",
+    "description": "Sent to new users after successful registration.",
+    "subject": "Welcome to Atlas!",
+    "fields": [
+      { "name": "email", "required": true, "description": "Recipient email address" }
+    ]
+  },
+  {
+    "id": "password-reset",
+    "name": "Password Reset",
+    "description": "Sent when a user requests a password reset.",
+    "subject": "Reset your Atlas password",
+    "fields": [
+      { "name": "email", "required": true, "description": "Recipient email address" },
+      { "name": "resetLink", "required": true, "description": "URL the user clicks to reset their password" }
+    ]
+  },
+  {
+    "id": "feature-announcement",
+    "name": "Feature Announcement",
+    "description": "Announces a new product feature to users.",
+    "subject": "What's new in Atlas",
+    "fields": [
+      { "name": "email", "required": true, "description": "Recipient email address" },
+      { "name": "featureName", "required": true, "description": "Name of the new feature" },
+      { "name": "description", "required": true, "description": "Short description of the feature" },
+      { "name": "ctaLabel", "required": false, "description": "Call-to-action button label" },
+      { "name": "ctaUrl", "required": false, "description": "Call-to-action button URL" }
+    ]
+  }
+]
+```
+
+---
+
+### 14. Preview a Template
+
+Renders a specific template using its built-in sample data and returns the HTML. The `email` field in the preview response shows what the recipient would actually see.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/templates/:id/preview` |
+| **Auth** | None |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/templates/password-reset/preview`
+
+**Success Response — `200 OK`:**
+```json
+{
+  "id": "password-reset",
+  "subject": "Reset your Atlas password",
+  "html": "<h1>Reset your password</h1><p>Hi alice@example.com,</p>..."
+}
+```
+
+**Error Response:**
+
+`404 Not Found` — unknown template ID:
+```json
+{
+  "message": "Template \"unknown\" not found",
+  "error": "Not Found",
+  "statusCode": 404
+}
+```
+
+---
+
 ## Full Workflow — Step by Step
 
 ### API client (Postman)
@@ -722,6 +814,18 @@ Body: {
 }
 ```
 
+**Step 11 — List available templates (no auth needed)**
+```
+GET /templates
+```
+Returns all template IDs, names, descriptions, subjects, and field definitions — useful for populating a template picker UI.
+
+**Step 12 — Preview a template (no auth needed)**
+```
+GET /templates/feature-announcement/preview
+```
+Returns rendered HTML using built-in sample data so you can see exactly what the email looks like before sending.
+
 ---
 
 ### Browser client (Google OAuth)
@@ -765,3 +869,5 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/links/:slug` | DELETE | Yes | Delete a short link |
 | `/s/:slug` | GET | No | Follow a short link (302 redirect) |
 | `/notify/send` | POST | Yes | Send a templated email (`welcome`, `password-reset`, `feature-announcement`) |
+| `/templates` | GET | No | List all available email templates with field metadata |
+| `/templates/:id/preview` | GET | No | Render a template with sample data, returns `{ id, subject, html }` |

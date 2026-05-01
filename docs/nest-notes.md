@@ -707,6 +707,46 @@ This is configured in `tsconfig.json`:
 }
 ```
 
+**Contracts can export runtime values, not just types:**
+
+A common mistake is treating `libs/contracts` as a types-only library. It can export any valid TypeScript — including runtime objects and maps that exist at runtime and can be iterated over.
+
+In this project, `libs/contracts/src/templates/registry.ts` exports a plain object:
+
+```ts
+export const TEMPLATES: Record<string, TemplateDefinition> = {
+  'welcome': welcomeTemplate,
+  'password-reset': passwordResetTemplate,
+  'feature-announcement': featureAnnouncementTemplate,
+};
+```
+
+The Gateway's `TemplatesController` imports this map directly and returns it from an HTTP endpoint — no database, no downstream service:
+
+```ts
+// apps/gateway/src/templates/templates.controller.ts
+import { TEMPLATES } from '@app/contracts';
+
+@Controller('templates')
+export class TemplatesController {
+  @Get()
+  list() {
+    return Object.values(TEMPLATES).map(({ id, name, description, subject, fields }) => ({
+      id, name, description, subject, fields,
+    }));
+  }
+
+  @Get(':id/preview')
+  preview(@Param('id') id: string) {
+    const template = TEMPLATES[id];
+    if (!template) throw new NotFoundException(`Template "${id}" not found`);
+    return { id: template.id, subject: template.subject, html: template.html(template.previewData) };
+  }
+}
+```
+
+This pattern is appropriate when the data is static and known at build time. If templates were user-configurable and stored in a database, you would query them in a service instead.
+
 ---
 
 ## 17. NestJS Microservices — Event-Driven Services
@@ -947,3 +987,4 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Event consumer | `@EventPattern()`, `@Payload()` | `NotificationController.handleUserCreated` |
 | Event publisher | `ClientsModule`, `ClientProxy`, `.emit()` | Auth service module + service |
 | Custom guard | `CanActivate` + `context.switchToHttp()` | `InternalKeyGuard` in notification service |
+| Contracts runtime export | Plain `const` object in `libs/contracts` | `TEMPLATES` registry used by `TemplatesController` |

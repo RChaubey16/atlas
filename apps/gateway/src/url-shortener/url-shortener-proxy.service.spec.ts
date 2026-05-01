@@ -36,14 +36,22 @@ describe('UrlShortenerProxyService', () => {
     httpService = module.get<HttpService>(HttpService);
   });
 
-  const okResponse = (data: unknown): AxiosResponse =>
-    ({ data, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+  const okResponse = (data: unknown): AxiosResponse => ({
+    data,
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: {} as any,
+  });
 
   describe('createLink', () => {
     it('should POST to /links with x-user-id header and return data', async () => {
       jest.spyOn(httpService, 'post').mockReturnValue(of(okResponse(mockLink)));
 
-      const result = await service.createLink({ targetUrl: 'https://example.com' }, 'user-1');
+      const result = await service.createLink(
+        { targetUrl: 'https://example.com' },
+        'user-1',
+      );
 
       expect(httpService.post).toHaveBeenCalledWith(
         expect.stringContaining('/links'),
@@ -56,7 +64,9 @@ describe('UrlShortenerProxyService', () => {
 
   describe('getMyLinks', () => {
     it('should GET /links with x-user-id header and return data', async () => {
-      jest.spyOn(httpService, 'get').mockReturnValue(of(okResponse([mockLink])));
+      jest
+        .spyOn(httpService, 'get')
+        .mockReturnValue(of(okResponse([mockLink])));
 
       const result = await service.getMyLinks('user-1');
 
@@ -107,7 +117,9 @@ describe('UrlShortenerProxyService', () => {
       };
       jest.spyOn(httpService, 'get').mockReturnValue(of(notFoundResponse));
 
-      await expect(service.resolveSlug('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.resolveSlug('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw GoneException when url-shortener returns 410', async () => {
@@ -120,7 +132,9 @@ describe('UrlShortenerProxyService', () => {
       };
       jest.spyOn(httpService, 'get').mockReturnValue(of(goneResponse));
 
-      await expect(service.resolveSlug('expired')).rejects.toThrow(GoneException);
+      await expect(service.resolveSlug('expired')).rejects.toThrow(
+        GoneException,
+      );
     });
   });
 });

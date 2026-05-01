@@ -8,7 +8,10 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @ApiOperation({ summary: 'Gateway health / welcome info' })
-  @ApiResponse({ status: 200, description: 'Returns service name, version, and docs URL' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns service name, version, and docs URL',
+  })
   @Get()
   getHello() {
     return this.appService.getHello();

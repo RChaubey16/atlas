@@ -10,8 +10,13 @@ export class EmailService {
   private readonly from: string;
 
   constructor(configService: ConfigService) {
-    this.resend = new Resend(configService.getOrThrow<string>('RESEND_API_KEY'));
-    this.from = configService.get<string>('SMTP_FROM', 'Atlas <onboarding@resend.dev>');
+    this.resend = new Resend(
+      configService.getOrThrow<string>('RESEND_API_KEY'),
+    );
+    this.from = configService.get<string>(
+      'SMTP_FROM',
+      'Atlas <onboarding@resend.dev>',
+    );
   }
 
   async sendMail(
@@ -31,6 +36,8 @@ export class EmailService {
       return;
     }
 
-    this.logger.log(`[Email] Sent "${template.subject}" to ${to} (id: ${data?.id})`);
+    this.logger.log(
+      `[Email] Sent "${template.subject}" to ${to} (id: ${data?.id})`,
+    );
   }
 }

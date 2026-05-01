@@ -8,13 +8,17 @@ export class SendEmailDto {
 
   @IsArray()
   @IsString({ each: true })
-  @ApiProperty({ example: ['alice@example.com'], description: 'Recipient email addresses' })
+  @ApiProperty({
+    example: ['alice@example.com'],
+    description: 'Recipient email addresses',
+  })
   to: string[];
 
   @IsObject()
   @ApiPropertyOptional({
     example: { resetLink: 'https://app.example.com/reset?token=abc123' },
-    description: 'Data passed to the template',
+    description:
+      'Template-specific data fields (email is auto-set per recipient)',
   })
-  templateData: Record<string, unknown>;
+  templateData: Record<string, string>;
 }

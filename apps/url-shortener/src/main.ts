@@ -7,4 +7,4 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   await app.listen(process.env.URL_SHORTENER_PORT ?? 3003);
 }
-bootstrap();
+void bootstrap();

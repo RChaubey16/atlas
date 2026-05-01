@@ -1,5 +1,17 @@
-import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ContentProxyService } from './content-proxy.service';
@@ -18,7 +30,11 @@ export class ContentProxyController {
   constructor(private readonly contentProxy: ContentProxyService) {}
 
   @ApiOperation({ summary: 'Create a new content item' })
-  @ApiResponse({ status: 201, description: 'The created content item', type: ContentItemDto })
+  @ApiResponse({
+    status: 201,
+    description: 'The created content item',
+    type: ContentItemDto,
+  })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @Post()
@@ -26,8 +42,14 @@ export class ContentProxyController {
     return this.contentProxy.createContent(dto, req.user.userId);
   }
 
-  @ApiOperation({ summary: 'List all content items owned by the authenticated user' })
-  @ApiResponse({ status: 200, description: 'Array of content items', type: [ContentItemDto] })
+  @ApiOperation({
+    summary: 'List all content items owned by the authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Array of content items',
+    type: [ContentItemDto],
+  })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   @Get()
   getMyContent(@Request() req: AuthRequest) {

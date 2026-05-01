@@ -44,9 +44,9 @@ describe('LinksController', () => {
     });
 
     it('should throw UnauthorizedException when x-user-id header is missing', async () => {
-      await expect(controller.create({ targetUrl: 'https://example.com' } as any, '')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        controller.create({ targetUrl: 'https://example.com' } as any, ''),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -59,7 +59,9 @@ describe('LinksController', () => {
     });
 
     it('should throw UnauthorizedException when x-user-id header is missing', async () => {
-      await expect(controller.findAll('')).rejects.toThrow(UnauthorizedException);
+      await expect(controller.findAll('')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -71,7 +73,9 @@ describe('LinksController', () => {
     });
 
     it('should throw UnauthorizedException when x-user-id header is missing', async () => {
-      await expect(controller.delete('abc123', '')).rejects.toThrow(UnauthorizedException);
+      await expect(controller.delete('abc123', '')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });

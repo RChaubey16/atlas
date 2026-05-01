@@ -1,4 +1,11 @@
-import { IsUrl, IsOptional, IsString, Matches, MinLength, MaxLength } from 'class-validator';
+import {
+  IsUrl,
+  IsOptional,
+  IsString,
+  Matches,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateLinkDto {
   @IsUrl({}, { message: 'targetUrl must be a valid URL' })
@@ -10,6 +17,8 @@ export class CreateLinkDto {
     message: 'Slug must be 3–50 alphanumeric/hyphen characters',
   })
   @MinLength(3, { message: 'Slug must be 3–50 alphanumeric/hyphen characters' })
-  @MaxLength(50, { message: 'Slug must be 3–50 alphanumeric/hyphen characters' })
+  @MaxLength(50, {
+    message: 'Slug must be 3–50 alphanumeric/hyphen characters',
+  })
   slug?: string;
 }

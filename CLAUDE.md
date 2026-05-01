@@ -4,7 +4,7 @@
 
 **Atlas** is a NestJS microservices backend portfolio project demonstrating service boundaries, API Gateway pattern, event contracts, Google OAuth, cookie-based auth, and clean NestJS modular design.
 
-## Current State (as of 2026-04-20)
+## Current State (as of 2026-04-23)
 
 All features are **complete and merged to `main`**.
 
@@ -15,12 +15,14 @@ All features are **complete and merged to `main`**.
 - CORS configured with `credentials: true` and `ALLOWED_ORIGINS` allowlist for `*.ruturaj.xyz` subdomains
 - Content CRUD with ownership validation
 - URL Shortener — create/list/delete short links, click tracking, 30-day expiry, nightly cleanup cron
-- API Gateway proxying all traffic with JWT guard
-- Notification Service — hybrid HTTP (port 3004) + RabbitMQ service; template registry with `welcome`, `password-reset`, `feature-announcement`; `POST /notify/send` guarded by `x-internal-key`; gateway proxies it with JWT auth
+- API Gateway proxying all traffic with JWT guard; serves `GET /templates` and `GET /templates/:id/preview` (no auth required)
+- Notification Service — pure RabbitMQ microservice (no HTTP port); consumes `user.created`, sends welcome email via Resend
 - Auth Service publishes `user.created` events to RabbitMQ via `ClientProxy`
-- Docker Compose running all 7 services (gateway, auth, content, url-shortener, postgres, rabbitmq, notification)
+- Template definitions live in `libs/contracts` — shared between gateway (serves them over HTTP) and notification service (uses them to send mail)
+- Docker Compose running all 6 services (gateway, auth, content, url-shortener, postgres, rabbitmq, notification)
 - Prisma v7 with `@prisma/adapter-pg` (driver adapter required — no `url` in schema)
 - `prisma generate` runs in Dockerfile (required before TypeScript compilation)
+- Gateway built with webpack (`"webpack": true` in `nest-cli.json`) — output goes to `dist/apps/gateway/main.js`
 
 ## Architecture
 
@@ -46,7 +48,7 @@ apps/
  └── notification-service/ # No HTTP port — RabbitMQ microservice; consumes user.created, sends email
 
 libs/
- └── contracts/            # Shared event types (@app/contracts path alias)
+ └── contracts/            # Shared event types + template definitions (@app/contracts path alias)
 
 prisma/
  └── schema.prisma         # User, Content, ShortLink, ClickEvent models (no url= in datasource — Prisma v7)
@@ -101,7 +103,7 @@ plan/
 | `nest-cli.json` | Monorepo config — all apps and libs registered here |
 | `tsconfig.json` | Root TS config — includes `@app/contracts` path alias |
 | `prisma/schema.prisma` | DB schema — User, Content, ShortLink, ClickEvent models |
-| `docker-compose.yml` | All 7 services wired together |
+| `docker-compose.yml` | All 6 services wired together |
 | `Dockerfile` | Dev image — includes `prisma generate` |
 | `Dockerfile.prod` | Multi-stage production image |
 | `.env` | Local env vars (not committed) |
@@ -111,6 +113,8 @@ plan/
 | `apps/gateway/src/auth/guards/google-auth.guard.ts` | GoogleAuthGuard — passes `?redirect` as OAuth state |
 | `apps/gateway/src/auth/jwt.strategy.ts` | JwtStrategy — extracts token from cookie first, then Bearer header |
 | `apps/auth-service/src/auth/auth.service.ts` | Core auth logic including `findOrCreateGoogleUser` |
+| `apps/gateway/src/templates/templates.controller.ts` | Serves `GET /templates` and `GET /templates/:id/preview` |
+| `libs/contracts/src/templates/registry.ts` | TEMPLATES map — single source of truth for all email templates |
 | `docs/notes.md` | Plain-English project overview |
 | `docs/nest-notes.md` | NestJS concepts explained with code examples |
 | `docs/api-guide.md` | Full API reference (Postman + browser workflows) |
@@ -125,14 +129,9 @@ GATEWAY_PORT=3000
 AUTH_SERVICE_PORT=3001
 CONTENT_SERVICE_PORT=3002
 URL_SHORTENER_PORT=3003
-NOTIFICATION_SERVICE_PORT=3004
 AUTH_SERVICE_URL="http://localhost:3001"
 CONTENT_SERVICE_URL="http://localhost:3002"
 URL_SHORTENER_URL="http://localhost:3003"
-NOTIFICATION_SERVICE_URL="http://localhost:3004"
-
-# Internal service-to-service auth (notification service)
-INTERNAL_NOTIFICATION_KEY="<generate with: openssl rand -hex 32>"
 
 # RabbitMQ (notification-service + auth-service)
 RABBITMQ_URL="amqp://guest:guest@localhost:5672"
@@ -170,7 +169,8 @@ Docker Compose overrides service URLs and `DATABASE_URL` to use container names 
 | GET | `/links` | Cookie / Bearer | List own short links with click counts |
 | DELETE | `/links/:slug` | Cookie / Bearer | Delete a short link |
 | GET | `/s/:slug` | No | Resolve short link (302 redirect) |
-| POST | `/notify/send` | Cookie / Bearer | Send a templated email (`templateId`, `to[]`, `templateData`) |
+| GET | `/templates` | No | List all available email templates |
+| GET | `/templates/:id/preview` | No | Render a template with preview data (returns HTML) |
 
 ## Commands
 

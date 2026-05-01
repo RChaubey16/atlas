@@ -1,6 +1,10 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
-import { USER_CREATED_EVENT, UserCreatedEvent, SendEmailCommand } from '@app/contracts';
+import {
+  USER_CREATED_EVENT,
+  UserCreatedEvent,
+  SendEmailCommand,
+} from '@app/contracts';
 import { NotificationService } from './notification.service';
 import { InternalKeyGuard } from '../guards/internal-key.guard';
 
