@@ -28,7 +28,9 @@ export class LinksService {
     const slug = dto.slug ?? (await this.generateUniqueSlug());
 
     if (dto.slug) {
-      const existing = await this.prisma.shortLink.findUnique({ where: { slug: dto.slug } });
+      const existing = await this.prisma.shortLink.findUnique({
+        where: { slug: dto.slug },
+      });
       if (existing) throw new ConflictException('Slug already in use');
     }
 
@@ -48,7 +50,7 @@ export class LinksService {
       include: { _count: { select: { clicks: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return links.map(link => this.toResponse(link, link._count.clicks));
+    return links.map((link) => this.toResponse(link, link._count.clicks));
   }
 
   async delete(slug: string, userId: string): Promise<void> {
@@ -61,7 +63,8 @@ export class LinksService {
   async resolveAndTrack(slug: string): Promise<string> {
     const link = await this.prisma.shortLink.findUnique({ where: { slug } });
     if (!link) throw new NotFoundException('Short link not found');
-    if (link.expiresAt < new Date()) throw new GoneException('Link has expired');
+    if (link.expiresAt < new Date())
+      throw new GoneException('Link has expired');
     await this.prisma.clickEvent.create({ data: { shortLinkId: link.id } });
     return link.targetUrl;
   }
@@ -69,7 +72,9 @@ export class LinksService {
   private async generateUniqueSlug(): Promise<string> {
     for (let i = 0; i < 5; i++) {
       const slug = this.generateSlug();
-      const existing = await this.prisma.shortLink.findUnique({ where: { slug } });
+      const existing = await this.prisma.shortLink.findUnique({
+        where: { slug },
+      });
       if (!existing) return slug;
     }
     throw new InternalServerErrorException('Failed to generate unique slug');
@@ -77,11 +82,14 @@ export class LinksService {
 
   private generateSlug(): string {
     return Array.from(randomBytes(6))
-      .map(b => CHARS[b % CHARS.length])
+      .map((b) => CHARS[b % CHARS.length])
       .join('');
   }
 
-  private toResponse(link: any, clickCount: number): ShortLinkResponse {
+  private toResponse(
+    link: { slug: string; targetUrl: string; expiresAt: Date; createdAt: Date },
+    clickCount: number,
+  ): ShortLinkResponse {
     return {
       slug: link.slug,
       targetUrl: link.targetUrl,

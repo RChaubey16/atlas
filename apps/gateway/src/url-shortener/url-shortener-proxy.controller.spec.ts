@@ -31,7 +31,9 @@ describe('UrlShortenerProxyController', () => {
       ],
     }).compile();
 
-    controller = module.get<UrlShortenerProxyController>(UrlShortenerProxyController);
+    controller = module.get<UrlShortenerProxyController>(
+      UrlShortenerProxyController,
+    );
     service = module.get(UrlShortenerProxyService);
   });
 

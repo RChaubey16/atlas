@@ -1,5 +1,10 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationProxyService } from './notification-proxy.service';
 import { SendEmailDto } from './dto/send-email.dto';
@@ -14,7 +19,10 @@ export class NotificationProxyController {
   @Post('send')
   @ApiOperation({ summary: 'Send an email using a named template' })
   @ApiResponse({ status: 200, description: 'Number of emails sent' })
-  @ApiResponse({ status: 400, description: 'Unknown templateId or invalid payload' })
+  @ApiResponse({
+    status: 400,
+    description: 'Unknown templateId or invalid payload',
+  })
   @ApiResponse({ status: 401, description: 'Missing or invalid JWT' })
   sendEmail(@Body() dto: SendEmailDto) {
     return this.notificationProxy.sendEmail(dto);

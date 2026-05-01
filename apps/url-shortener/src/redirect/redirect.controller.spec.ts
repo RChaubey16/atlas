@@ -35,15 +35,23 @@ describe('RedirectController', () => {
     });
 
     it('should propagate NotFoundException when slug does not exist', async () => {
-      service.resolveAndTrack.mockRejectedValue(new NotFoundException('Short link not found'));
+      service.resolveAndTrack.mockRejectedValue(
+        new NotFoundException('Short link not found'),
+      );
 
-      await expect(controller.redirect('missing')).rejects.toThrow(NotFoundException);
+      await expect(controller.redirect('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should propagate GoneException when link is expired', async () => {
-      service.resolveAndTrack.mockRejectedValue(new GoneException('Link has expired'));
+      service.resolveAndTrack.mockRejectedValue(
+        new GoneException('Link has expired'),
+      );
 
-      await expect(controller.redirect('expired')).rejects.toThrow(GoneException);
+      await expect(controller.redirect('expired')).rejects.toThrow(
+        GoneException,
+      );
     });
   });
 });

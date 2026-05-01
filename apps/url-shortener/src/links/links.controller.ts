@@ -16,7 +16,10 @@ export class LinksController {
   constructor(private readonly linksService: LinksService) {}
 
   @Post()
-  async create(@Body() dto: CreateLinkDto, @Headers('x-user-id') userId: string) {
+  async create(
+    @Body() dto: CreateLinkDto,
+    @Headers('x-user-id') userId: string,
+  ) {
     if (!userId) throw new UnauthorizedException();
     return this.linksService.create(dto, userId);
   }
@@ -28,7 +31,10 @@ export class LinksController {
   }
 
   @Delete(':slug')
-  async delete(@Param('slug') slug: string, @Headers('x-user-id') userId: string) {
+  async delete(
+    @Param('slug') slug: string,
+    @Headers('x-user-id') userId: string,
+  ) {
     if (!userId) throw new UnauthorizedException();
     return this.linksService.delete(slug, userId);
   }

@@ -7,7 +7,11 @@ export const passwordResetTemplate: TemplateDefinition = {
   subject: 'Reset your Atlas password',
   fields: [
     { name: 'email', required: true, description: 'Recipient email address' },
-    { name: 'resetLink', required: true, description: 'URL the user clicks to reset their password' },
+    {
+      name: 'resetLink',
+      required: true,
+      description: 'URL the user clicks to reset their password',
+    },
   ],
   previewData: {
     email: 'alice@example.com',

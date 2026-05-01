@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { UserCreatedEvent, USER_CREATED_EVENT, SendEmailCommand } from '@app/contracts';
+import {
+  UserCreatedEvent,
+  USER_CREATED_EVENT,
+  SendEmailCommand,
+} from '@app/contracts';
 import { EmailService } from '../email/email.service';
 import { TemplateRegistry } from '../email/template-registry';
 
@@ -18,7 +22,9 @@ export class NotificationService {
       email: event.email,
     });
     const template = this.templateRegistry.get('welcome');
-    await this.emailService.sendMail(event.email, template, { email: event.email });
+    await this.emailService.sendMail(event.email, template, {
+      email: event.email,
+    });
   }
 
   async sendEmail(command: SendEmailCommand): Promise<{ sent: number }> {

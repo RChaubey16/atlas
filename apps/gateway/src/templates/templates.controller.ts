@@ -10,13 +10,15 @@ export class TemplatesController {
   @ApiOperation({ summary: 'List all available email templates' })
   @ApiResponse({ status: 200, type: [TemplateListItemDto] })
   list(): TemplateListItemDto[] {
-    return Object.values(TEMPLATES).map(({ id, name, description, subject, fields }) => ({
-      id,
-      name,
-      description,
-      subject,
-      fields,
-    }));
+    return Object.values(TEMPLATES).map(
+      ({ id, name, description, subject, fields }) => ({
+        id,
+        name,
+        description,
+        subject,
+        fields,
+      }),
+    );
   }
 
   @Get(':id/preview')

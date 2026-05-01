@@ -18,15 +18,21 @@ export class NotificationProxyService {
       'NOTIFICATION_SERVICE_URL',
       'http://localhost:3004',
     );
-    this.internalKey = configService.getOrThrow<string>('INTERNAL_NOTIFICATION_KEY');
+    this.internalKey = configService.getOrThrow<string>(
+      'INTERNAL_NOTIFICATION_KEY',
+    );
   }
 
   async sendEmail(command: SendEmailCommand): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post<unknown>(`${this.notificationUrl}/notify/send`, command, {
-          headers: { 'x-internal-key': this.internalKey },
-        }),
+        this.http.post<unknown>(
+          `${this.notificationUrl}/notify/send`,
+          command,
+          {
+            headers: { 'x-internal-key': this.internalKey },
+          },
+        ),
       );
       return data;
     } catch (err) {
@@ -42,7 +48,10 @@ export class NotificationProxyService {
       };
       const message =
         typeof data?.message === 'string' ? data.message : 'An error occurred';
-      throw new HttpException({ ...data, displayErrorMessage: message }, status);
+      throw new HttpException(
+        { ...data, displayErrorMessage: message },
+        status,
+      );
     }
     throw err as Error;
   }

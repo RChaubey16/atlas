@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { LinksService } from './links.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -47,7 +51,10 @@ describe('LinksService', () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.shortLink.create as jest.Mock).mockResolvedValue(mockLink);
 
-      const result = await service.create({ targetUrl: 'https://example.com' }, 'user-1');
+      const result = await service.create(
+        { targetUrl: 'https://example.com' },
+        'user-1',
+      );
 
       expect(prisma.shortLink.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -67,7 +74,10 @@ describe('LinksService', () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.shortLink.create as jest.Mock).mockResolvedValue(mockLink);
 
-      await service.create({ targetUrl: 'https://example.com', slug: 'my-brand' }, 'user-1');
+      await service.create(
+        { targetUrl: 'https://example.com', slug: 'my-brand' },
+        'user-1',
+      );
 
       expect(prisma.shortLink.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -80,7 +90,10 @@ describe('LinksService', () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(mockLink);
 
       await expect(
-        service.create({ targetUrl: 'https://example.com', slug: 'taken' }, 'user-1'),
+        service.create(
+          { targetUrl: 'https://example.com', slug: 'taken' },
+          'user-1',
+        ),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -112,19 +125,25 @@ describe('LinksService', () => {
 
       await service.delete('abc123', 'user-1');
 
-      expect(prisma.shortLink.delete).toHaveBeenCalledWith({ where: { slug: 'abc123' } });
+      expect(prisma.shortLink.delete).toHaveBeenCalledWith({
+        where: { slug: 'abc123' },
+      });
     });
 
     it('should throw NotFoundException when slug does not exist', async () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(service.delete('missing', 'user-1')).rejects.toThrow(NotFoundException);
+      await expect(service.delete('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw ForbiddenException when user does not own the link', async () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(mockLink);
 
-      await expect(service.delete('abc123', 'other-user')).rejects.toThrow(ForbiddenException);
+      await expect(service.delete('abc123', 'other-user')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 
@@ -144,11 +163,16 @@ describe('LinksService', () => {
     it('should throw NotFoundException when slug does not exist', async () => {
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(null);
 
-      await expect(service.resolveAndTrack('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.resolveAndTrack('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw GoneException when link is expired', async () => {
-      const expiredLink = { ...mockLink, expiresAt: new Date(Date.now() - 1000) };
+      const expiredLink = {
+        ...mockLink,
+        expiresAt: new Date(Date.now() - 1000),
+      };
       (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue(expiredLink);
 
       await expect(service.resolveAndTrack('abc123')).rejects.toThrow(

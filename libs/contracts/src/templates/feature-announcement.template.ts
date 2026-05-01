@@ -7,10 +7,26 @@ export const featureAnnouncementTemplate: TemplateDefinition = {
   subject: "What's new in Atlas",
   fields: [
     { name: 'email', required: true, description: 'Recipient email address' },
-    { name: 'featureName', required: true, description: 'Name of the new feature' },
-    { name: 'description', required: true, description: 'Short description of the feature' },
-    { name: 'ctaLabel', required: false, description: 'Call-to-action button label' },
-    { name: 'ctaUrl', required: false, description: 'Call-to-action button URL' },
+    {
+      name: 'featureName',
+      required: true,
+      description: 'Name of the new feature',
+    },
+    {
+      name: 'description',
+      required: true,
+      description: 'Short description of the feature',
+    },
+    {
+      name: 'ctaLabel',
+      required: false,
+      description: 'Call-to-action button label',
+    },
+    {
+      name: 'ctaUrl',
+      required: false,
+      description: 'Call-to-action button URL',
+    },
   ],
   previewData: {
     email: 'alice@example.com',

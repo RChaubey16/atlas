@@ -23,7 +23,9 @@ describe('UrlShortenerRedirectController', () => {
       ],
     }).compile();
 
-    controller = module.get<UrlShortenerRedirectController>(UrlShortenerRedirectController);
+    controller = module.get<UrlShortenerRedirectController>(
+      UrlShortenerRedirectController,
+    );
     service = module.get(UrlShortenerProxyService);
     jest.clearAllMocks();
   });

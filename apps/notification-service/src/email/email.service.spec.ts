@@ -60,6 +60,8 @@ describe('EmailService', () => {
     });
     const template = new WelcomeEmailTemplate();
 
-    await expect(service.sendMail('user@example.com', template)).resolves.not.toThrow();
+    await expect(
+      service.sendMail('user@example.com', template),
+    ).resolves.not.toThrow();
   });
 });

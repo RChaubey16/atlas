@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 
@@ -7,7 +12,9 @@ export class InternalKeyGuard implements CanActivate {
   private readonly expectedKey: string;
 
   constructor(configService: ConfigService) {
-    this.expectedKey = configService.getOrThrow<string>('INTERNAL_NOTIFICATION_KEY');
+    this.expectedKey = configService.getOrThrow<string>(
+      'INTERNAL_NOTIFICATION_KEY',
+    );
   }
 
   canActivate(context: ExecutionContext): boolean {

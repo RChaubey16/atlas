@@ -42,9 +42,9 @@ import { TemplatesModule } from './templates/templates.module';
     DummyModule,
     UrlShortenerModule,
     NotificationModule,
-    TemplatesModule
+    TemplatesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

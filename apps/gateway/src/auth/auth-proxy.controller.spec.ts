@@ -10,7 +10,10 @@ describe('AuthProxyController', () => {
   let controller: AuthProxyController;
   let service: AuthProxyService;
 
-  const mockTokenPair = { accessToken: 'access.token', refreshToken: 'refresh.token' };
+  const mockTokenPair = {
+    accessToken: 'access.token',
+    refreshToken: 'refresh.token',
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -33,7 +36,10 @@ describe('AuthProxyController', () => {
 
   describe('register', () => {
     it('should call authProxy.register with the dto and return the result', async () => {
-      const dto: RegisterDto = { email: 'test@example.com', password: 'password123' };
+      const dto: RegisterDto = {
+        email: 'test@example.com',
+        password: 'password123',
+      };
       const result = await controller.register(dto);
       expect(service.register).toHaveBeenCalledWith(dto);
       expect(result).toEqual(mockTokenPair);
@@ -42,7 +48,10 @@ describe('AuthProxyController', () => {
 
   describe('login', () => {
     it('should call authProxy.login with the dto and return the result', async () => {
-      const dto: LoginDto = { email: 'test@example.com', password: 'password123' };
+      const dto: LoginDto = {
+        email: 'test@example.com',
+        password: 'password123',
+      };
       const result = await controller.login(dto);
       expect(service.login).toHaveBeenCalledWith(dto);
       expect(result).toEqual(mockTokenPair);

@@ -10,7 +10,7 @@ import { CreateContentDto } from './dto/create-content.dto';
 export class ContentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateContentDto, ownerId: string) {
+  create(dto: CreateContentDto, ownerId: string) {
     return this.prisma.content.create({
       data: {
         title: dto.title,
@@ -20,7 +20,7 @@ export class ContentService {
     });
   }
 
-  async findAllByOwner(ownerId: string) {
+  findAllByOwner(ownerId: string) {
     return this.prisma.content.findMany({
       where: { ownerId },
       orderBy: { createdAt: 'desc' },
