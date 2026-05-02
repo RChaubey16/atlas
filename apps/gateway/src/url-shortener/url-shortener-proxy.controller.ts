@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UrlShortenerProxyService } from './url-shortener-proxy.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -20,6 +21,7 @@ interface AuthRequest extends Request {
 export class UrlShortenerProxyController {
   constructor(private readonly proxy: UrlShortenerProxyService) {}
 
+  @Throttle({ global: { limit: 20, ttl: 60000 } })
   @Post()
   create(@Body() body: unknown, @Request() req: AuthRequest) {
     return this.proxy.createLink(body, req.user.userId);

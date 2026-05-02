@@ -19,6 +19,20 @@ The gateway accepts **both** on every protected route — cookies are checked fi
 
 ---
 
+## Rate Limits
+
+The gateway enforces rate limits to prevent abuse. Exceeding any limit returns `429 Too Many Requests`.
+
+| Endpoint | Limit | Window | Tracked by |
+|---|---|---|---|
+| `POST /auth/login` | 5 requests | 60 s | IP address |
+| `POST /auth/register` | 5 requests | 60 s | IP address |
+| `POST /content` | 20 requests | 60 s | Authenticated user ID |
+| `POST /links` | 20 requests | 60 s | Authenticated user ID |
+| All other routes | 100 requests | 60 s | IP address |
+
+---
+
 ## Setup in Postman
 
 1. Open Postman and create a new **Collection** called `Atlas`.
@@ -144,6 +158,8 @@ Creates a new user account and returns tokens. A welcome email is sent asynchron
 }
 ```
 
+`429 Too Many Requests` — more than 5 attempts in 60 s from the same IP.
+
 ---
 
 ### 2. Login
@@ -182,6 +198,8 @@ Authenticates an existing user and returns fresh tokens.
   "statusCode": 401
 }
 ```
+
+`429 Too Many Requests` — more than 5 attempts in 60 s from the same IP.
 
 > **Note:** Google-only accounts (no password set) will also return `401` here. Use Google OAuth instead.
 
@@ -357,6 +375,8 @@ Creates a new content item owned by the authenticated user.
 }
 ```
 
+`429 Too Many Requests` — more than 20 creations in 60 s by the same user.
+
 ---
 
 ### 7. Get My Content
@@ -493,6 +513,8 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
   "statusCode": 409
 }
 ```
+
+`429 Too Many Requests` — more than 20 creations in 60 s by the same user.
 
 `401 Unauthorized` — missing or invalid token.
 

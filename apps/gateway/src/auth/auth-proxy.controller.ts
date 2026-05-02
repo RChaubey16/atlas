@@ -7,6 +7,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
@@ -23,6 +24,7 @@ import { TokenPairDto } from './dto/token-pair.dto';
 export class AuthProxyController {
   constructor(private readonly authProxy: AuthProxyService) {}
 
+  @Throttle({ global: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({
     status: 201,
@@ -39,6 +41,7 @@ export class AuthProxyController {
     return this.authProxy.register(dto);
   }
 
+  @Throttle({ global: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Log in with email and password' })
   @ApiResponse({
     status: 201,

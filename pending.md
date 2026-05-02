@@ -101,12 +101,38 @@ Added `new Logger('Bootstrap')` to all five `main.ts` files. Each service logs i
 ---
 
 ### 4. Rate Limiting
-- [ ] Install `@nestjs/throttler`
-- [ ] Apply strict throttle on `POST /auth/login` and `POST /auth/register` (e.g., 5 requests / 60s per IP)
-- [ ] Apply looser throttle on content/link creation (e.g., 20 requests / 60s per user)
-- [ ] Add global fallback throttler in gateway
+- [x] Install `@nestjs/throttler`
+- [x] Apply strict throttle on `POST /auth/login` and `POST /auth/register` (e.g., 5 requests / 60s per IP)
+- [x] Apply looser throttle on content/link creation (e.g., 20 requests / 60s per user)
+- [x] Add global fallback throttler in gateway
 
 Without rate limiting, the auth endpoints are trivially brute-forceable.
+
+#### What was done
+
+Installed `@nestjs/throttler@6.5.0`.
+
+**Global fallback throttler**
+
+Registered `ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }])` in the gateway's `AppModule`. This sets a 100 requests / 60 s ceiling on every route in the gateway as a safety net.
+
+**Custom `UserThrottlerGuard`**
+
+Created `apps/gateway/src/common/user-throttler.guard.ts` — extends `ThrottlerGuard` and overrides `getTracker()`. For authenticated routes (content/links creation), the tracker key is the JWT `userId` from `req.user`, so each user gets their own independent counter. For unauthenticated routes (auth endpoints, redirects) it falls back to the request IP. The guard is registered globally via `APP_GUARD` in `AppModule`.
+
+**Auth endpoints — strict 5 req / 60 s per IP**
+
+`@Throttle({ global: { limit: 5, ttl: 60000 } })` applied to:
+- `POST /auth/register` (`auth-proxy.controller.ts`)
+- `POST /auth/login` (`auth-proxy.controller.ts`)
+
+**Content / link creation — 20 req / 60 s per user**
+
+`@Throttle({ global: { limit: 20, ttl: 60000 } })` applied to:
+- `POST /content` (`content-proxy.controller.ts`)
+- `POST /links` (`url-shortener-proxy.controller.ts`)
+
+When the limit is exceeded the guard returns `429 Too Many Requests` automatically — no additional exception handling needed.
 
 ---
 
@@ -119,12 +145,46 @@ Without rate limiting, the auth endpoints are trivially brute-forceable.
 ---
 
 ### 6. Health Check Endpoints
-- [ ] Add `GET /health` to gateway (returns `{ status, uptime, timestamp }`)
-- [ ] Add `GET /health/ready` to gateway that checks downstream services (auth, content, url-shortener) and postgres reachability
-- [ ] Add `GET /health` to each individual service (auth, content, url-shortener)
-- [ ] Add healthcheck configs for app services in `docker-compose.yml` (currently only postgres and rabbitmq have them)
+- [x] Add `GET /health` to gateway (returns `{ status, uptime, timestamp }`)
+- [x] Add `GET /health/ready` to gateway that checks downstream services (auth, content, url-shortener) and postgres reachability
+- [x] Add `GET /health` to each individual service (auth, content, url-shortener)
+- [x] Add healthcheck configs for app services in `docker-compose.yml` (currently only postgres and rabbitmq have them)
 
 Needed for Kubernetes/cloud deployments and demonstrates operational awareness.
+
+#### What was done
+
+Installed `@nestjs/terminus`.
+
+**Gateway — two health endpoints**
+
+Created `apps/gateway/src/health/` (`HealthModule`, `HealthController`) registered in `AppModule`.
+
+- `GET /health` — liveness; no auth required; returns `{ status: 'ok', uptime: <seconds>, timestamp: <ISO> }`. Plain object, no terminus overhead. Docker/Kubernetes liveness probes hit this.
+- `GET /health/ready` — readiness via `@nestjs/terminus` `HealthCheckService` + `HttpHealthIndicator`. Pings `/health` on each downstream service (`auth-service`, `content-service`, `url-shortener`) using `HttpHealthIndicator.pingCheck()`. Returns `200` with terminus's standard `{ status, info, error, details }` shape if all pass; `503` if any downstream is unreachable. Kubernetes readiness probes hit this — traffic is held until all dependencies are up.
+
+**Individual services — database health endpoint**
+
+Each of `auth-service`, `content-service`, and `url-shortener` gets:
+- A `PrismaHealthIndicator` (custom `HealthIndicator` subclass) that runs `SELECT 1` against the database via the existing `PrismaService`.
+- A `HealthController` with `GET /health` decorated with `@HealthCheck()` that delegates to `TerminusModule`'s `HealthCheckService`.
+- Returns `200` with `{ status: 'ok', info: { database: { status: 'up' } }, ... }` when the DB is reachable; `503` when it is not.
+
+`notification-service` gets a minimal `GET /health` that returns `{ status: 'ok' }` (no DB to check).
+
+**Docker Compose**
+
+Added `healthcheck` configs to all five app services using `wget -qO /dev/null http://localhost:PORT/health` (Alpine has wget but not curl):
+
+| Service | Port | interval | timeout | retries | start_period |
+|---|---|---|---|---|---|
+| gateway | 3000 | 30s | 5s | 3 | 30s |
+| auth-service | 3001 | 30s | 5s | 3 | 40s (longer — runs `prisma migrate deploy` first) |
+| content-service | 3002 | 30s | 5s | 3 | 30s |
+| url-shortener | 3003 | 30s | 5s | 3 | 30s |
+| notification-service | 3004 | 30s | 5s | 3 | 30s |
+
+Updated gateway's `depends_on` from plain service names to `condition: service_healthy` for auth, content, and url-shortener — so Docker won't route traffic through the gateway until all three backends pass their health check. Notification-service dependency uses `condition: service_started` (notifications are fire-and-forget; a slow RabbitMQ startup shouldn't block the gateway).
 
 ---
 

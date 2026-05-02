@@ -6,6 +6,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -29,6 +30,7 @@ interface AuthRequest extends Request {
 export class ContentProxyController {
   constructor(private readonly contentProxy: ContentProxyService) {}
 
+  @Throttle({ global: { limit: 20, ttl: 60000 } })
   @ApiOperation({ summary: 'Create a new content item' })
   @ApiResponse({
     status: 201,
