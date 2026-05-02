@@ -27,7 +27,11 @@ describe('LinksController', () => {
             create: jest.fn().mockResolvedValue(mockLink),
             findAllByUser: jest.fn().mockResolvedValue(mockPaginated),
             update: jest.fn().mockResolvedValue(mockLink),
-            getAnalytics: jest.fn().mockResolvedValue({ totalClicks: 0, clicksByDay: [], lastClickedAt: null }),
+            getAnalytics: jest.fn().mockResolvedValue({
+              totalClicks: 0,
+              clicksByDay: [],
+              lastClickedAt: null,
+            }),
             delete: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -85,9 +89,9 @@ describe('LinksController', () => {
     });
 
     it('should throw UnauthorizedException when x-user-id header is missing', async () => {
-      await expect(
-        controller.update('abc123', {} as any, ''),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(controller.update('abc123', {} as any, '')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -99,9 +103,9 @@ describe('LinksController', () => {
     });
 
     it('should throw UnauthorizedException when x-user-id header is missing', async () => {
-      await expect(
-        controller.getAnalytics('abc123', ''),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(controller.getAnalytics('abc123', '')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
