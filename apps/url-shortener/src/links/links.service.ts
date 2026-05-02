@@ -1,9 +1,10 @@
 import {
-  Injectable,
   ConflictException,
   ForbiddenException,
   GoneException,
+  Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
@@ -22,6 +23,8 @@ interface ShortLinkResponse {
 
 @Injectable()
 export class LinksService {
+  private readonly logger = new Logger(LinksService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateLinkDto, userId: string): Promise<ShortLinkResponse> {
@@ -41,6 +44,7 @@ export class LinksService {
       include: { _count: { select: { clicks: true } } },
     });
 
+    this.logger.log(`Link created slug=${slug} user=${userId}`);
     return this.toResponse(link, link._count.clicks);
   }
 
@@ -56,8 +60,14 @@ export class LinksService {
   async delete(slug: string, userId: string): Promise<void> {
     const link = await this.prisma.shortLink.findUnique({ where: { slug } });
     if (!link) throw new NotFoundException('Short link not found');
-    if (link.userId !== userId) throw new ForbiddenException();
+    if (link.userId !== userId) {
+      this.logger.warn(
+        `Forbidden: user ${userId} attempted to delete slug=${slug}`,
+      );
+      throw new ForbiddenException();
+    }
     await this.prisma.shortLink.delete({ where: { slug } });
+    this.logger.log(`Link deleted slug=${slug} user=${userId}`);
   }
 
   async resolveAndTrack(slug: string): Promise<string> {

@@ -617,6 +617,91 @@ export class UrlShortenerRedirectController {
 
 ---
 
+## 14. Logger — Structured Application Logging
+
+**Files:** `apps/auth-service/src/auth/auth.service.ts`, `apps/gateway/src/auth/auth-proxy.service.ts`, all `main.ts` files
+
+NestJS ships with a built-in `Logger` class from `@nestjs/common`. Unlike most providers in this project it is not injected via the DI container — you instantiate it directly inside each class that needs it.
+
+### Instantiation pattern
+
+```ts
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  //                                   ↑ 'AuthService' — appears in every log line as context
+}
+```
+
+`AuthService.name` is a JavaScript built-in that evaluates to the string `'AuthService'`. Passing the class name keeps logs easy to trace across a multi-service system where everything writes to the same stdout stream.
+
+### Log levels
+
+| Method | Severity | When to use |
+|---|---|---|
+| `logger.log(message)` | LOG | Normal domain events — user registered, link created |
+| `logger.warn(message)` | WARN | Expected failures — login attempt failed, ownership check denied |
+| `logger.error(message, trace?)` | ERROR | Unexpected failures — downstream service unreachable, unhandled exception |
+| `logger.debug(message)` | DEBUG | Detailed trace for development; NestJS suppresses this level by default in production |
+
+### Auth event logging in AuthService
+
+The auth service logs one line per meaningful domain event, with `warn` for failures and `log` for successes:
+
+```ts
+// Registration
+this.logger.log(`Registered user ${user.id} (${user.email})`);
+
+// Login — two outcomes at different levels
+this.logger.warn(`Login failed: ${dto.email}`);
+this.logger.log(`Login: ${user.id} (${user.email})`);
+
+// Token refresh
+this.logger.warn('Token refresh failed: invalid or expired refresh token');
+this.logger.log(`Token refreshed: ${payload.sub}`);
+```
+
+Using `warn` for failures means a monitoring tool can alert on elevated warn rates (e.g. a brute-force attempt) without parsing message strings or adding extra code.
+
+### Upstream error logging in proxy services
+
+Every gateway proxy service passes a context string to `rethrowUpstreamError` so the log identifies exactly which downstream call failed:
+
+```ts
+private rethrowUpstreamError(err: unknown, upstream: string): never {
+  if (err instanceof AxiosError && err.response) {
+    const { status } = err.response as { status: number; data: Record<string, unknown> };
+    this.logger.warn(`Upstream error [${upstream}] ${status}`);
+    // e.g. "Upstream error [auth-service/login] 401"
+    // ...
+  }
+  this.logger.error(`Unexpected error [${upstream}]`, err);
+  throw err as Error;
+}
+```
+
+### Startup logging in main.ts
+
+Each service's `main.ts` creates a `Logger('Bootstrap')` instance and emits one line after the port is bound:
+
+```ts
+const logger = new Logger('Bootstrap');
+await app.listen(port);
+logger.log(`Auth service listening on port ${port}`);
+```
+
+### Log output format
+
+NestJS formats every line as:
+```
+[Nest] 12345  -  05/02/2026, 10:00:00 AM     LOG [AuthService] Registered user abc-123 (user@example.com)
+       ↑ PID      ↑ timestamp                 ↑ level ↑ context   ↑ message
+```
+
+The context in brackets (`[AuthService]`, `[HTTP]`, `[Bootstrap]`) is the string you pass to the `Logger` constructor. Using `ClassName.name` keeps context names consistent with the actual source classes.
+
+---
+
 ## 15. JwtModule — Signing and Verifying Tokens
 
 **File:** `apps/auth-service/src/auth/auth.module.ts`
@@ -921,7 +1006,89 @@ bootstrap();
 
 ---
 
-## 19. How All the Concepts Connect — Full Picture
+## 19. Interceptors — Cross-cutting Concerns
+
+**File:** `apps/gateway/src/common/http-logging.interceptor.ts`
+
+An **Interceptor** is a class that wraps a route handler. It can execute logic before the handler runs, observe or transform the result after it completes, and catch any exceptions the handler throws. Interceptors implement the `NestInterceptor` interface.
+
+### Why not middleware or a guard?
+
+| Mechanism | Runs before handler | Runs after handler | Sees the result | Sees exceptions |
+|---|---|---|---|---|
+| Middleware | Yes | No | No | No |
+| Guard | Yes | No | No | No |
+| **Interceptor** | **Yes** | **Yes** | **Yes** | **Yes (via catchError)** |
+| Exception filter | No | Error only | Error shape | Yes |
+
+HTTP request logging needs to capture data from both sides of the handler: the incoming request (method, URL, start time) and the outgoing result (status code, elapsed time). Only an interceptor has access to both, making it the correct tool for this use case.
+
+### Structure of the HttpLoggingInterceptor
+
+```ts
+// apps/gateway/src/common/http-logging.interceptor.ts
+@Injectable()
+export class HttpLoggingInterceptor implements NestInterceptor {
+  private readonly logger = new Logger('HTTP');
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const req = context.switchToHttp().getRequest<Request>();
+    const { method, url } = req;  // captured before the handler runs
+    const start = Date.now();
+
+    return next.handle().pipe(   // next.handle() delegates to the actual route handler
+      tap(() => {
+        // runs after the handler returns successfully
+        const res = context.switchToHttp().getResponse<Response>();
+        this.logger.log(`${method} ${url} ${res.statusCode} +${Date.now() - start}ms`);
+      }),
+      catchError((err: unknown) => {
+        // runs after the handler throws — log, then re-throw
+        const status = (err as { status?: number })?.status ?? 500;
+        this.logger.warn(`${method} ${url} ${status} +${Date.now() - start}ms`);
+        return throwError(() => err);
+        // ↑ re-throw as an Observable so NestJS exception filters still handle the response shape
+      }),
+    );
+  }
+}
+```
+
+`next.handle()` returns an **Observable** (from RxJS). You attach behaviour with `.pipe()`:
+- `tap(fn)` — runs a side-effect on each emitted value without altering it (success path)
+- `catchError(fn)` — intercepts a thrown error; must return an Observable (`throwError()` re-wraps the error)
+
+### Registering a global interceptor
+
+Because `HttpLoggingInterceptor` has no injected dependencies, it is registered in `main.ts` using `useGlobalInterceptors()`:
+
+```ts
+app.useGlobalInterceptors(new HttpLoggingInterceptor());
+```
+
+This applies the interceptor to every route in the gateway. For interceptors that need DI (e.g. they depend on a `ConfigService`), use the `APP_INTERCEPTOR` token in a module instead:
+
+```ts
+// Pattern when the interceptor needs DI:
+@Module({
+  providers: [{ provide: APP_INTERCEPTOR, useClass: HttpLoggingInterceptor }],
+})
+export class AppModule {}
+```
+
+### Output
+
+Every request through the gateway produces exactly one log line:
+```
+[Nest]  -  LOG [HTTP] GET /content 200 +23ms
+[Nest]  -  WARN [HTTP] POST /auth/login 401 +18ms
+```
+
+The `warn` level for 4xx/5xx means a monitoring system can alert on elevated warn rates without needing to filter on specific status codes.
+
+---
+
+## 20. How All the Concepts Connect — Full Picture
 
 Here is how a `POST /auth/register` request flows through all these NestJS concepts:
 
@@ -930,6 +1097,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
                   Body: { "email": "user@example.com", "password": "secret123" }
 
 2. GATEWAY (NestFactory started on port 3000)
+   → HttpLoggingInterceptor intercepts the request — records method, URL, and start time
    → AuthProxyController receives the request  (@Controller('auth') + @Post('register'))
    → No guard on this route, so it passes straight through
    → AuthProxyService.register(body) is called
@@ -945,7 +1113,8 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
        - Queries DB: does this email exist? No.
        - Hashes the password with bcrypt
        - Saves the user via PrismaService
-       - Logs the user.created event
+       - Emits user.created event to RabbitMQ (fire-and-forget)
+       - logger.log('Registered user abc-123 (user@example.com)')
        - Signs an accessToken (expires 15min) and refreshToken (expires 7 days)
        - Returns { accessToken, refreshToken }
    → AuthController returns the token pair
@@ -953,6 +1122,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 4. GATEWAY
    → Receives { accessToken, refreshToken } from Auth Service
    → Passes it straight back to the client
+   → HttpLoggingInterceptor logs 'POST /auth/register 201 +Xms'
 
 5. CLIENT receives: { "accessToken": "eyJ...", "refreshToken": "eyJ..." }
 ```
@@ -988,3 +1158,5 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Event publisher | `ClientsModule`, `ClientProxy`, `.emit()` | Auth service module + service |
 | Custom guard | `CanActivate` + `context.switchToHttp()` | `InternalKeyGuard` in notification service |
 | Contracts runtime export | Plain `const` object in `libs/contracts` | `TEMPLATES` registry used by `TemplatesController` |
+| Logger | `new Logger(ClassName.name)` | All service files and `main.ts` bootstrap functions |
+| Interceptor | `NestInterceptor` + `useGlobalInterceptors()` | `HttpLoggingInterceptor` in gateway |

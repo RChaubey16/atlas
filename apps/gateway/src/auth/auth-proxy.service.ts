@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
@@ -6,6 +6,7 @@ import { GoogleProfile } from './strategies/google.strategy';
 
 @Injectable()
 export class AuthProxyService {
+  private readonly logger = new Logger(AuthProxyService.name);
   private readonly authUrl =
     process.env.AUTH_SERVICE_URL ?? 'http://localhost:3001';
 
@@ -18,7 +19,7 @@ export class AuthProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'auth-service/register');
     }
   }
 
@@ -29,7 +30,7 @@ export class AuthProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'auth-service/login');
     }
   }
 
@@ -40,7 +41,7 @@ export class AuthProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'auth-service/refresh');
     }
   }
 
@@ -51,16 +52,17 @@ export class AuthProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'auth-service/google-profile');
     }
   }
 
-  private rethrowUpstreamError(err: unknown): never {
+  private rethrowUpstreamError(err: unknown, upstream: string): never {
     if (err instanceof AxiosError && err.response) {
       const { status, data } = err.response as {
         status: number;
         data: Record<string, unknown>;
       };
+      this.logger.warn(`Upstream error [${upstream}] ${status}`);
       const message =
         typeof data?.message === 'string' ? data.message : 'An error occurred';
       throw new HttpException(
@@ -68,6 +70,7 @@ export class AuthProxyService {
         status,
       );
     }
+    this.logger.error(`Unexpected error [${upstream}]`, err);
     throw err as Error;
   }
 }

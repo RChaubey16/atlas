@@ -1,7 +1,8 @@
 import {
-  Injectable,
   GoneException,
+  Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -9,6 +10,7 @@ import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class UrlShortenerProxyService {
+  private readonly logger = new Logger(UrlShortenerProxyService.name);
   private readonly urlShortenerUrl =
     process.env.URL_SHORTENER_URL ?? 'http://localhost:3003';
 
@@ -49,9 +51,21 @@ export class UrlShortenerProxyService {
       }),
     );
     if (response.status === 302) return response.headers.location as string;
-    if (response.status === 404)
+    if (response.status === 404) {
+      this.logger.warn(
+        `Upstream error [url-shortener/resolve] 404 slug=${slug}`,
+      );
       throw new NotFoundException('Short link not found');
-    if (response.status === 410) throw new GoneException('Link has expired');
+    }
+    if (response.status === 410) {
+      this.logger.warn(
+        `Upstream error [url-shortener/resolve] 410 slug=${slug}`,
+      );
+      throw new GoneException('Link has expired');
+    }
+    this.logger.error(
+      `Upstream error [url-shortener/resolve] ${response.status} slug=${slug}`,
+    );
     throw new InternalServerErrorException();
   }
 }

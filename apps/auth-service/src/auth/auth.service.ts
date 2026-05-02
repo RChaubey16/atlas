@@ -1,8 +1,9 @@
 import {
-  Injectable,
   ConflictException,
-  UnauthorizedException,
   Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -21,6 +22,7 @@ export interface TokenPair {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly accessSecret: string;
   private readonly refreshSecret: string;
 
@@ -55,6 +57,7 @@ export class AuthService {
     };
     this.notificationClient.emit(USER_CREATED_EVENT, event);
 
+    this.logger.log(`Registered user ${user.id} (${user.email})`);
     return this.issueTokens(user.id, user.email);
   }
 
@@ -63,14 +66,17 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (!user || !user.passwordHash) {
+      this.logger.warn(`Login failed: ${dto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) {
+      this.logger.warn(`Login failed: ${dto.email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    this.logger.log(`Login: ${user.id} (${user.email})`);
     return this.issueTokens(user.id, user.email);
   }
 
@@ -87,6 +93,9 @@ export class AuthService {
           where: { id: user.id },
           data: { googleId: dto.googleId },
         });
+        this.logger.log(
+          `Google linked to existing user ${user.id} (${user.email})`,
+        );
       } else {
         user = await this.prisma.user.create({
           data: { email: dto.email, googleId: dto.googleId },
@@ -98,6 +107,9 @@ export class AuthService {
           createdAt: user.createdAt,
         };
         this.notificationClient.emit(USER_CREATED_EVENT, event);
+        this.logger.log(
+          `Google registered new user ${user.id} (${user.email})`,
+        );
       }
     }
 
@@ -110,8 +122,12 @@ export class AuthService {
         refreshToken,
         { secret: this.refreshSecret },
       );
+      this.logger.log(`Token refreshed: ${payload.sub}`);
       return this.issueTokens(payload.sub, payload.email);
     } catch {
+      this.logger.warn(
+        'Token refresh failed: invalid or expired refresh token',
+      );
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
