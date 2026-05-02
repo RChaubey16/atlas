@@ -1,12 +1,14 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cookieParser = require('cookie-parser');
 
 import { AppModule } from './app.module';
+import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
   app.use(cookieParser());
@@ -22,6 +24,7 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  app.useGlobalInterceptors(new HttpLoggingInterceptor());
 
   const config = new DocumentBuilder()
     .setTitle('Atlas API')
@@ -38,6 +41,8 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000);
+  const port = process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000;
+  await app.listen(port);
+  logger.log(`Gateway listening on port ${port}`);
 }
 void bootstrap();

@@ -1,10 +1,11 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
 
 @Injectable()
 export class ContentProxyService {
+  private readonly logger = new Logger(ContentProxyService.name);
   private readonly contentUrl =
     process.env.CONTENT_SERVICE_URL ?? 'http://localhost:3002';
 
@@ -19,7 +20,7 @@ export class ContentProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'content-service/create');
     }
   }
 
@@ -32,16 +33,17 @@ export class ContentProxyService {
       );
       return data;
     } catch (err) {
-      this.rethrowUpstreamError(err);
+      this.rethrowUpstreamError(err, 'content-service/list');
     }
   }
 
-  private rethrowUpstreamError(err: unknown): never {
+  private rethrowUpstreamError(err: unknown, upstream: string): never {
     if (err instanceof AxiosError && err.response) {
       const { status, data } = err.response as {
         status: number;
         data: Record<string, unknown>;
       };
+      this.logger.warn(`Upstream error [${upstream}] ${status}`);
       const message =
         typeof data?.message === 'string' ? data.message : 'An error occurred';
       throw new HttpException(
@@ -49,6 +51,7 @@ export class ContentProxyService {
         status,
       );
     }
+    this.logger.error(`Unexpected error [${upstream}]`, err);
     throw err as Error;
   }
 }

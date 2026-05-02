@@ -60,13 +60,43 @@ Updated Passport strategies, guards, and services to inject `ConfigService` inst
 ---
 
 ### 3. Structured Logging
-- [ ] Add `NestJS Logger` consistently to **all** services (gateway, auth-service, content-service, url-shortener)
-- [ ] Log HTTP requests at gateway level (method, path, status, latency)
-- [ ] Log auth events: successful login, failed login, token refresh, registration
-- [ ] Log proxy errors with upstream status and service name
-- [ ] Replace all `console.log` with Logger
+- [x] Add `NestJS Logger` consistently to **all** services (gateway, auth-service, content-service, url-shortener)
+- [x] Log HTTP requests at gateway level (method, path, status, latency)
+- [x] Log auth events: successful login, failed login, token refresh, registration
+- [x] Log proxy errors with upstream status and service name
+- [x] Replace all `console.log` with Logger
 
 Gateway currently has zero request logging. For a portfolio piece, reviewers expect to see logging as a first-class concern.
+
+#### What was done
+
+**Gateway — HTTP request interceptor**
+
+Created `apps/gateway/src/common/http-logging.interceptor.ts` — a global `NestInterceptor` registered via `app.useGlobalInterceptors()` in `main.ts`. Logs every inbound request as `METHOD /path STATUS +Xms`. Success responses use `logger.log`; error responses (caught via `catchError`) use `logger.warn` and re-throw so NestJS exception filters still handle the response shape.
+
+**Gateway — proxy error logging**
+
+Updated `rethrowUpstreamError` in `AuthProxyService`, `ContentProxyService`, and `NotificationProxyService` to accept an `upstream` context string (e.g. `auth-service/login`). On an Axios upstream error it logs `warn` with the status code and context before rethrowing. On unexpected non-Axios errors it logs `error`. `UrlShortenerProxyService` logs `warn` for 404/410 (with the slug) and `error` for unexpected status codes.
+
+**Auth service — auth event logging**
+
+Added `Logger` to `AuthService`:
+- `register` — logs new user id and email on success
+- `login` — logs success with user id/email; logs `warn` on failed attempt (user not found or wrong password)
+- `refresh` — logs success with user id; logs `warn` on invalid/expired refresh token
+- `findOrCreateGoogleUser` — logs whether Google login linked to an existing account or created a brand-new user
+
+**Content service**
+
+Added `Logger` to `ContentService`: logs content created (id + ownerId); logs `warn` when an ownership check fails (user attempted to access another user's content).
+
+**URL shortener**
+
+Added `Logger` to `LinksService`: logs link created (slug + userId) and link deleted (slug + userId); logs `warn` on ownership violations in `delete`. Added `Logger` to `CleanupService`: the nightly cron now logs how many expired links were deleted.
+
+**Startup logging — all `main.ts` files**
+
+Added `new Logger('Bootstrap')` to all five `main.ts` files. Each service logs its name and the port it bound to after `app.listen()` resolves. The two `console.log` calls in `notification-service/main.ts` were replaced with `logger.log`.
 
 ---
 

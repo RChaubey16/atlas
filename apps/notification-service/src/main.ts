@@ -1,8 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { NotificationModule } from './notification.module';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(NotificationModule);
 
   app.connectMicroservice<MicroserviceOptions>({
@@ -19,7 +21,7 @@ async function bootstrap() {
 
   const port = process.env.NOTIFICATION_SERVICE_PORT ?? 3004;
   await app.listen(port);
-  console.log(`[Notification Service] HTTP listening on port ${port}`);
-  console.log('[Notification Service] RMQ listening on notification_queue');
+  logger.log(`Notification service HTTP listening on port ${port}`);
+  logger.log('Notification service RMQ listening on notification_queue');
 }
 void bootstrap();
