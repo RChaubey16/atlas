@@ -52,11 +52,15 @@ export class UrlShortenerProxyService {
     );
     if (response.status === 302) return response.headers.location as string;
     if (response.status === 404) {
-      this.logger.warn(`Upstream error [url-shortener/resolve] 404 slug=${slug}`);
+      this.logger.warn(
+        `Upstream error [url-shortener/resolve] 404 slug=${slug}`,
+      );
       throw new NotFoundException('Short link not found');
     }
     if (response.status === 410) {
-      this.logger.warn(`Upstream error [url-shortener/resolve] 410 slug=${slug}`);
+      this.logger.warn(
+        `Upstream error [url-shortener/resolve] 410 slug=${slug}`,
+      );
       throw new GoneException('Link has expired');
     }
     this.logger.error(

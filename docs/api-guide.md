@@ -274,6 +274,28 @@ The `access_token` (cookie) or `accessToken` (JSON) expires after **15 minutes**
 
 ---
 
+### 5. Logout
+
+Clears the `access_token` and `refresh_token` cookies set by the gateway. After this call any subsequent cookie-based request from the same browser will be rejected as unauthenticated.
+
+> **Note:** This endpoint only clears cookies. The JWT itself is not invalidated server-side — it remains cryptographically valid until it expires (15 minutes). If you received tokens as JSON (Postman / API clients), simply discard them client-side.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/auth/logout` |
+| **Auth** | None required |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "success": true
+}
+```
+
+---
+
 ## Content Endpoints
 
 All content endpoints **require** authentication.
@@ -283,7 +305,7 @@ All content endpoints **require** authentication.
 
 ---
 
-### 5. Create Content
+### 6. Create Content
 
 Creates a new content item owned by the authenticated user.
 
@@ -337,7 +359,7 @@ Creates a new content item owned by the authenticated user.
 
 ---
 
-### 6. Get My Content
+### 7. Get My Content
 
 Returns all content items belonging to the authenticated user, newest first.
 
@@ -365,7 +387,7 @@ Returns an empty array `[]` if the user has no content yet.
 
 ---
 
-### 7. Get Single Content Item
+### 8. Get Single Content Item
 
 Returns one content item by its ID. Only works if the item belongs to the authenticated user.
 
@@ -419,7 +441,7 @@ Short link management endpoints **require** authentication. The public redirect 
 
 ---
 
-### 8. Create Short Link
+### 9. Create Short Link
 
 Creates a new short link expiring in 30 days. Optionally supply a custom slug; if omitted, a random 6-character slug is generated.
 
@@ -476,7 +498,7 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
 
 ---
 
-### 9. List My Short Links
+### 10. List My Short Links
 
 Returns all short links belonging to the authenticated user, newest first. Includes a `clickCount` for each link.
 
@@ -504,7 +526,7 @@ Returns an empty array `[]` if the user has no links yet.
 
 ---
 
-### 10. Delete Short Link
+### 11. Delete Short Link
 
 Deletes one of the authenticated user's short links by slug.
 
@@ -536,7 +558,7 @@ Deletes one of the authenticated user's short links by slug.
 
 ---
 
-### 11. Follow a Short Link (Public Redirect)
+### 12. Follow a Short Link (Public Redirect)
 
 Resolves a slug and issues a `302` redirect to the target URL. No authentication required. Each visit increments the click counter. Expired links return `410 Gone`.
 
@@ -587,7 +609,7 @@ Notification endpoints **require** authentication.
 
 ---
 
-### 12. Send a Templated Email
+### 13. Send a Templated Email
 
 Sends an email to one or more recipients using a named template. The gateway forwards the request to the Notification Service over an internal channel — callers only need a valid JWT.
 
@@ -646,7 +668,7 @@ Template endpoints are **public** — no authentication required. Use them to di
 
 ---
 
-### 13. List Available Templates
+### 14. List Available Templates
 
 Returns every email template in the system along with its field definitions.
 
@@ -697,7 +719,7 @@ Returns every email template in the system along with its field definitions.
 
 ---
 
-### 14. Preview a Template
+### 15. Preview a Template
 
 Renders a specific template using its built-in sample data and returns the HTML. The `email` field in the preview response shows what the recipient would actually see.
 
@@ -826,6 +848,12 @@ GET /templates/feature-announcement/preview
 ```
 Returns rendered HTML using built-in sample data so you can see exactly what the email looks like before sending.
 
+**Step 13 — Log out**
+```
+POST /auth/logout
+```
+Clears the `access_token` and `refresh_token` cookies. The server returns `{ "success": true }`. Further requests using those cookies will be rejected with `401 Unauthorized`.
+
 ---
 
 ### Browser client (Google OAuth)
@@ -859,6 +887,7 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/auth/register` | POST | No | Create account, returns token pair |
 | `/auth/login` | POST | No | Login, returns token pair |
 | `/auth/refresh` | POST | No | Swap refresh token for new token pair |
+| `/auth/logout` | POST | No | Clear `access_token` and `refresh_token` cookies |
 | `/auth/google` | GET | No | Initiate Google OAuth — pass `?redirect=<url>` (browser only) |
 | `/auth/google/callback` | GET | No | Google OAuth callback — sets cookies, redirects to frontend |
 | `/content` | POST | Yes | Create a content item |

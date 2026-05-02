@@ -61,7 +61,9 @@ export class LinksService {
     const link = await this.prisma.shortLink.findUnique({ where: { slug } });
     if (!link) throw new NotFoundException('Short link not found');
     if (link.userId !== userId) {
-      this.logger.warn(`Forbidden: user ${userId} attempted to delete slug=${slug}`);
+      this.logger.warn(
+        `Forbidden: user ${userId} attempted to delete slug=${slug}`,
+      );
       throw new ForbiddenException();
     }
     await this.prisma.shortLink.delete({ where: { slug } });

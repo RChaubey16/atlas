@@ -36,7 +36,9 @@ export class ContentService {
     const item = await this.prisma.content.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Content not found');
     if (item.ownerId !== ownerId) {
-      this.logger.warn(`Forbidden: user ${ownerId} attempted to access content ${id}`);
+      this.logger.warn(
+        `Forbidden: user ${ownerId} attempted to access content ${id}`,
+      );
       throw new ForbiddenException();
     }
     return item;

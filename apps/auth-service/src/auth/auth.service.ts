@@ -93,7 +93,9 @@ export class AuthService {
           where: { id: user.id },
           data: { googleId: dto.googleId },
         });
-        this.logger.log(`Google linked to existing user ${user.id} (${user.email})`);
+        this.logger.log(
+          `Google linked to existing user ${user.id} (${user.email})`,
+        );
       } else {
         user = await this.prisma.user.create({
           data: { email: dto.email, googleId: dto.googleId },
@@ -105,7 +107,9 @@ export class AuthService {
           createdAt: user.createdAt,
         };
         this.notificationClient.emit(USER_CREATED_EVENT, event);
-        this.logger.log(`Google registered new user ${user.id} (${user.email})`);
+        this.logger.log(
+          `Google registered new user ${user.id} (${user.email})`,
+        );
       }
     }
 
@@ -121,7 +125,9 @@ export class AuthService {
       this.logger.log(`Token refreshed: ${payload.sub}`);
       return this.issueTokens(payload.sub, payload.email);
     } catch {
-      this.logger.warn('Token refresh failed: invalid or expired refresh token');
+      this.logger.warn(
+        'Token refresh failed: invalid or expired refresh token',
+      );
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
