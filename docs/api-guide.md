@@ -463,7 +463,7 @@ Short link management endpoints **require** authentication. The public redirect 
 
 ### 9. Create Short Link
 
-Creates a new short link expiring in 30 days. Optionally supply a custom slug; if omitted, a random 6-character slug is generated.
+Creates a new short link. Optionally supply a custom slug and control when the link expires. If neither `expiresInDays` nor `noExpiry` is given, the link expires after 30 days.
 
 | | |
 |---|---|
@@ -475,31 +475,37 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
 ```json
 {
   "targetUrl": "https://example.com/some/long/url",
-  "slug": "my-link"
+  "slug": "my-link",
+  "expiresInDays": 7,
+  "noExpiry": false
 }
 ```
 
-**Rules:**
-- `targetUrl` must be a valid URL.
-- `slug` is optional. If provided, must be 3–50 alphanumeric/hyphen characters (`[a-zA-Z0-9-]`).
+**Fields:**
+- `targetUrl` — required, must be a valid public URL. URLs resolving to private/loopback addresses are rejected.
+- `slug` — optional, 3–50 alphanumeric/hyphen characters. Auto-generated (6 chars) if omitted.
+- `expiresInDays` — optional integer 1–365. Defaults to 30 when omitted and `noExpiry` is false.
+- `noExpiry` — optional boolean. Set to `true` to create a link that never expires (`expiresAt` will be `null` in the response).
 
 **Success Response — `201 Created`:**
 ```json
 {
   "slug": "my-link",
   "targetUrl": "https://example.com/some/long/url",
-  "expiresAt": "2026-05-16T09:00:00.000Z",
-  "createdAt": "2026-04-16T09:00:00.000Z",
+  "expiresAt": "2026-05-09T09:00:00.000Z",
+  "createdAt": "2026-05-02T09:00:00.000Z",
   "clickCount": 0
 }
 ```
 
+`expiresAt` is `null` when `noExpiry: true` was passed.
+
 **Error Responses:**
 
-`400 Bad Request` — invalid URL or slug format:
+`400 Bad Request` — invalid URL, slug format, or private/loopback target:
 ```json
 {
-  "message": ["targetUrl must be a valid URL"],
+  "message": "targetUrl must not point to a private or loopback address",
   "error": "Bad Request",
   "statusCode": 400
 }
@@ -522,7 +528,7 @@ Creates a new short link expiring in 30 days. Optionally supply a custom slug; i
 
 ### 10. List My Short Links
 
-Returns all short links belonging to the authenticated user, newest first. Includes a `clickCount` for each link.
+Returns a paginated list of short links belonging to the authenticated user, newest first. Includes a `clickCount` for each link.
 
 | | |
 |---|---|
@@ -531,24 +537,126 @@ Returns all short links belonging to the authenticated user, newest first. Inclu
 | **Auth** | Cookie or Bearer Token |
 | **Body** | None |
 
+**Query Parameters:**
+
+| Parameter | Type | Default | Max | Description |
+|---|---|---|---|---|
+| `page` | integer | `1` | — | Page number (1-based) |
+| `limit` | integer | `20` | `100` | Items per page |
+
+**Example URL:** `http://localhost:3000/links?page=2&limit=10`
+
 **Success Response — `200 OK`:**
 ```json
-[
-  {
-    "slug": "my-link",
-    "targetUrl": "https://example.com/some/long/url",
-    "expiresAt": "2026-05-16T09:00:00.000Z",
-    "createdAt": "2026-04-16T09:00:00.000Z",
-    "clickCount": 12
-  }
-]
+{
+  "data": [
+    {
+      "slug": "my-link",
+      "targetUrl": "https://example.com/some/long/url",
+      "expiresAt": "2026-05-09T09:00:00.000Z",
+      "createdAt": "2026-05-02T09:00:00.000Z",
+      "clickCount": 12
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "pages": 3
+}
 ```
 
-Returns an empty array `[]` if the user has no links yet.
+`expiresAt` is `null` for never-expiring links. `data` is an empty array `[]` when the user has no links.
 
 ---
 
-### 11. Delete Short Link
+### 11. Update Short Link
+
+Updates the target URL and/or expiry of an existing link. The slug itself cannot be changed. At least one field must be provided.
+
+| | |
+|---|---|
+| **Method** | `PATCH` |
+| **URL** | `http://localhost:3000/links/:slug` |
+| **Auth** | Cookie or Bearer Token |
+
+**Example URL:** `http://localhost:3000/links/my-link`
+
+**Body (raw JSON):**
+```json
+{
+  "targetUrl": "https://example.com/new-destination",
+  "expiresInDays": 14
+}
+```
+
+**Fields (all optional, at least one required):**
+- `targetUrl` — new destination URL. Same SSRF validation as create.
+- `expiresInDays` — extend or shorten expiry to this many days from now (1–365).
+- `noExpiry` — set to `true` to remove the expiry (`expiresAt` becomes `null`).
+
+> Note: sending `noExpiry: false` without `expiresInDays` leaves the current `expiresAt` unchanged. To reset to 30 days, send `expiresInDays: 30`.
+
+**Success Response — `200 OK`:**
+```json
+{
+  "slug": "my-link",
+  "targetUrl": "https://example.com/new-destination",
+  "expiresAt": "2026-05-16T09:00:00.000Z",
+  "createdAt": "2026-05-02T09:00:00.000Z",
+  "clickCount": 5
+}
+```
+
+**Error Responses:**
+
+`400 Bad Request` — no fields provided, invalid URL, or private/loopback target.
+
+`403 Forbidden` — the link belongs to a different user.
+
+`404 Not Found` — no link with that slug.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 12. Link Click Analytics
+
+Returns click statistics for one of the authenticated user's links. Includes a 30-day daily breakdown.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/links/:slug/analytics` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/links/my-link/analytics`
+
+**Success Response — `200 OK`:**
+```json
+{
+  "totalClicks": 47,
+  "clicksByDay": [
+    { "date": "2026-04-25", "count": 3 },
+    { "date": "2026-04-26", "count": 11 },
+    { "date": "2026-05-01", "count": 7 }
+  ],
+  "lastClickedAt": "2026-05-01T18:43:00.000Z"
+}
+```
+
+`clicksByDay` lists only days that had at least one click, in ascending date order, for the last 30 days. `lastClickedAt` is `null` if the link has never been clicked.
+
+**Error Responses:**
+
+`403 Forbidden` — the link belongs to a different user.
+
+`404 Not Found` — no link with that slug.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 13. Delete Short Link
 
 Deletes one of the authenticated user's short links by slug.
 
@@ -580,7 +688,7 @@ Deletes one of the authenticated user's short links by slug.
 
 ---
 
-### 12. Follow a Short Link (Public Redirect)
+### 14. Follow a Short Link (Public Redirect)
 
 Resolves a slug and issues a `302` redirect to the target URL. No authentication required. Each visit increments the click counter. Expired links return `410 Gone`.
 
@@ -631,7 +739,7 @@ Notification endpoints **require** authentication.
 
 ---
 
-### 13. Send a Templated Email
+### 15. Send a Templated Email
 
 Sends an email to one or more recipients using a named template. The gateway forwards the request to the Notification Service over an internal channel — callers only need a valid JWT.
 
@@ -690,7 +798,7 @@ Template endpoints are **public** — no authentication required. Use them to di
 
 ---
 
-### 14. List Available Templates
+### 16. List Available Templates
 
 Returns every email template in the system along with its field definitions.
 
@@ -741,7 +849,7 @@ Returns every email template in the system along with its field definitions.
 
 ---
 
-### 15. Preview a Template
+### 17. Preview a Template
 
 Renders a specific template using its built-in sample data and returns the HTML. The `email` field in the preview response shows what the recipient would actually see.
 
@@ -822,18 +930,37 @@ Body: { "refreshToken": "<your refreshToken>" }
 ```
 POST /links
 Authorization: Bearer <accessToken>
-Body: { "targetUrl": "https://example.com", "slug": "demo" }
+Body: { "targetUrl": "https://example.com", "slug": "demo", "expiresInDays": 7 }
 ```
+
+Pass `"noExpiry": true` instead of `expiresInDays` to create a link that never expires.
 
 **Step 7 — Follow the short link (open in browser or curl)**
 ```
 GET /s/demo
 ```
 
-**Step 8 — Check click count**
+**Step 8 — Check click count and list links (paginated)**
 ```
-GET /links
+GET /links?page=1&limit=20
 Authorization: Bearer <accessToken>
+```
+
+Returns `{ data: [...], total, page, pages }`.
+
+**Step 8b — View detailed analytics**
+```
+GET /links/demo/analytics
+Authorization: Bearer <accessToken>
+```
+
+Returns `{ totalClicks, clicksByDay, lastClickedAt }`.
+
+**Step 8c — Update the link's destination**
+```
+PATCH /links/demo
+Authorization: Bearer <accessToken>
+Body: { "targetUrl": "https://example.com/updated" }
 ```
 
 **Step 9 — Delete the short link**
@@ -915,8 +1042,10 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/content` | POST | Yes | Create a content item |
 | `/content` | GET | Yes | List all your content |
 | `/content/:id` | GET | Yes | Get one content item by ID |
-| `/links` | POST | Yes | Create a short link (30-day expiry) |
-| `/links` | GET | Yes | List your short links with click counts |
+| `/links` | POST | Yes | Create a short link (`expiresInDays` 1–365, `noExpiry`, optional custom `slug`) |
+| `/links` | GET | Yes | List your short links — paginated (`?page=1&limit=20`), returns `{ data, total, page, pages }` |
+| `/links/:slug` | PATCH | Yes | Update `targetUrl` and/or expiry of an existing link |
+| `/links/:slug/analytics` | GET | Yes | Click analytics — `totalClicks`, 30-day daily breakdown, `lastClickedAt` |
 | `/links/:slug` | DELETE | Yes | Delete a short link |
 | `/s/:slug` | GET | No | Follow a short link (302 redirect) |
 | `/notify/send` | POST | Yes | Send a templated email (`welcome`, `password-reset`, `feature-announcement`) |

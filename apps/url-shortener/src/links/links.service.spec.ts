@@ -32,11 +32,16 @@ describe('LinksService', () => {
               create: jest.fn(),
               findUnique: jest.fn(),
               findMany: jest.fn(),
+              count: jest.fn().mockResolvedValue(0),
               delete: jest.fn(),
+              update: jest.fn(),
             },
             clickEvent: {
               create: jest.fn(),
+              count: jest.fn().mockResolvedValue(0),
+              findFirst: jest.fn().mockResolvedValue(null),
             },
+            $queryRaw: jest.fn().mockResolvedValue([]),
           },
         },
       ],
@@ -99,23 +104,29 @@ describe('LinksService', () => {
   });
 
   describe('findAllByUser', () => {
-    it('should return all links for the given userId with clickCount', async () => {
+    it('should return paginated links for the given userId with clickCount', async () => {
       (prisma.shortLink.findMany as jest.Mock).mockResolvedValue([mockLink]);
+      (prisma.shortLink.count as jest.Mock).mockResolvedValue(1);
 
-      const result = await service.findAllByUser('user-1');
+      const result = await service.findAllByUser('user-1', 1, 20);
 
       expect(prisma.shortLink.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { userId: 'user-1' } }),
       );
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({ slug: 'abc123', clickCount: 5 });
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({ slug: 'abc123', clickCount: 5 });
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
+      expect(result.pages).toBe(1);
     });
 
-    it('should not return links belonging to other users', async () => {
+    it('should return an empty page when user has no links', async () => {
       (prisma.shortLink.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.shortLink.count as jest.Mock).mockResolvedValue(0);
 
-      const result = await service.findAllByUser('other-user');
-      expect(result).toHaveLength(0);
+      const result = await service.findAllByUser('other-user', 1, 20);
+      expect(result.data).toHaveLength(0);
+      expect(result.total).toBe(0);
     });
   });
 
@@ -177,6 +188,18 @@ describe('LinksService', () => {
 
       await expect(service.resolveAndTrack('abc123')).rejects.toThrow(
         expect.objectContaining({ status: 410 }),
+      );
+    });
+
+    it('should not throw for a link with null expiresAt (never expires)', async () => {
+      (prisma.shortLink.findUnique as jest.Mock).mockResolvedValue({
+        ...mockLink,
+        expiresAt: null,
+      });
+      (prisma.clickEvent.create as jest.Mock).mockResolvedValue({});
+
+      await expect(service.resolveAndTrack('abc123')).resolves.toBe(
+        'https://example.com',
       );
     });
   });

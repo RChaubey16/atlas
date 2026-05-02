@@ -33,7 +33,7 @@ model ShortLink {
   slug      String       @unique
   targetUrl String
   userId    String
-  expiresAt DateTime
+  expiresAt DateTime?
   createdAt DateTime     @default(now())
   clicks    ClickEvent[]
 }
