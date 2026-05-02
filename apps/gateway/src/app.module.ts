@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 
 import { AppController } from './app.controller';
@@ -10,6 +12,8 @@ import { DummyModule } from './dummy/dummy.module';
 import { UrlShortenerModule } from './url-shortener/url-shortener.module';
 import { NotificationModule } from './notification/notification.module';
 import { TemplatesModule } from './templates/templates.module';
+import { HealthModule } from './health/health.module';
+import { UserThrottlerGuard } from './common/user-throttler.guard';
 
 @Module({
   imports: [
@@ -37,14 +41,16 @@ import { TemplatesModule } from './templates/templates.module';
           .default('development'),
       }),
     }),
+    ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }]),
     AuthModule,
     ContentModule,
     DummyModule,
     UrlShortenerModule,
     NotificationModule,
     TemplatesModule,
+    HealthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: UserThrottlerGuard }],
 })
 export class AppModule {}

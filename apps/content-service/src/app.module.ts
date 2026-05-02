@@ -4,6 +4,7 @@ import * as Joi from 'joi';
 
 import { ContentModule } from './content/content.module';
 import { DummyModule } from './dummy/dummy.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { DummyModule } from './dummy/dummy.module';
     }),
     ContentModule,
     DummyModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

@@ -1088,7 +1088,82 @@ The `warn` level for 4xx/5xx means a monitoring system can alert on elevated war
 
 ---
 
-## 20. How All the Concepts Connect — Full Picture
+## 20. ThrottlerModule — Rate Limiting
+
+**Files:** `apps/gateway/src/app.module.ts`, `apps/gateway/src/common/user-throttler.guard.ts`, `apps/gateway/src/auth/auth-proxy.controller.ts`
+
+`@nestjs/throttler` adds rate limiting to NestJS with three pieces: a module that sets the limits, a guard that enforces them, and a decorator that overrides the defaults per route.
+
+### Setting up the module
+
+```ts
+// apps/gateway/src/app.module.ts
+ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }])
+```
+
+`ttl` is in milliseconds (60000 ms = 60 s). `limit` is the maximum number of requests allowed in that window. The `name` field (`'global'`) is the throttler's identifier — used when overriding limits per route.
+
+### Registering the guard globally
+
+```ts
+providers: [
+  { provide: APP_GUARD, useClass: UserThrottlerGuard },
+]
+```
+
+Using `APP_GUARD` (from `@nestjs/core`) applies the guard to every route in the application — equivalent to calling `app.useGlobalGuards()`, but with full access to the DI container.
+
+### Tracking per-user vs per-IP
+
+By default `ThrottlerGuard` uses the request IP as the counter key. In this project, content and link creation routes are authenticated — it is more meaningful to count per user than per IP (users on shared IPs or proxies should not interfere with each other).
+
+`UserThrottlerGuard` extends `ThrottlerGuard` and overrides `getTracker()`:
+
+```ts
+// apps/gateway/src/common/user-throttler.guard.ts
+@Injectable()
+export class UserThrottlerGuard extends ThrottlerGuard {
+  protected getTracker(req: Record<string, unknown>): Promise<string> {
+    const user = req.user as { userId?: string } | undefined;
+    const key = user?.userId ?? (req as unknown as Request).ip ?? 'unknown';
+    return Promise.resolve(key);
+  }
+}
+```
+
+For an authenticated request, `req.user` is populated by `JwtAuthGuard` before the throttler runs — so `userId` is available. For unauthenticated routes (auth endpoints, health, redirects), `req.user` is undefined and the IP is used instead.
+
+### Overriding limits per route
+
+`@Throttle()` accepts an object keyed by throttler name. The value overrides both `limit` and `ttl` for that specific route:
+
+```ts
+// Strict — 5 attempts per 60 s (per IP, no JWT on these routes)
+@Throttle({ global: { limit: 5, ttl: 60000 } })
+@Post('login')
+login(@Body() dto: LoginDto) { ... }
+
+// Loose — 20 creations per 60 s (per userId, JWT required)
+@Throttle({ global: { limit: 20, ttl: 60000 } })
+@Post()
+create(@Body() dto: CreateContentDto, @Request() req: AuthRequest) { ... }
+```
+
+When the limit is exceeded the guard automatically returns `429 Too Many Requests` — no extra exception handling is needed.
+
+### Applied limits in this project
+
+| Route | Limit | Window | Key |
+|---|---|---|---|
+| `POST /auth/login` | 5 | 60 s | IP |
+| `POST /auth/register` | 5 | 60 s | IP |
+| `POST /content` | 20 | 60 s | userId |
+| `POST /links` | 20 | 60 s | userId |
+| All other routes | 100 | 60 s | IP |
+
+---
+
+## 21. How All the Concepts Connect — Full Picture
 
 Here is how a `POST /auth/register` request flows through all these NestJS concepts:
 
@@ -1160,3 +1235,4 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Contracts runtime export | Plain `const` object in `libs/contracts` | `TEMPLATES` registry used by `TemplatesController` |
 | Logger | `new Logger(ClassName.name)` | All service files and `main.ts` bootstrap functions |
 | Interceptor | `NestInterceptor` + `useGlobalInterceptors()` | `HttpLoggingInterceptor` in gateway |
+| Rate limiting | `ThrottlerModule` + `APP_GUARD` + `@Throttle()` | `UserThrottlerGuard` + auth and content controllers in gateway |

@@ -6,6 +6,7 @@ import * as Joi from 'joi';
 import { AppController } from './app.controller';
 import { LinksModule } from './links/links.module';
 import { RedirectModule } from './redirect/redirect.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { RedirectModule } from './redirect/redirect.module';
     ScheduleModule.forRoot(),
     LinksModule,
     RedirectModule,
+    HealthModule,
   ],
   controllers: [AppController],
 })

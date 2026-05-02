@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
 
 import { EmailModule } from './email/email.module';
+import { HealthModule } from './health/health.module';
 import { NotificationController } from './notification/notification.controller';
 import { NotificationService } from './notification/notification.service';
 
@@ -19,6 +20,7 @@ import { NotificationService } from './notification/notification.service';
       }),
     }),
     EmailModule,
+    HealthModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService],

@@ -59,6 +59,7 @@ Every API call from a client (mobile app, browser, etc.) hits the Gateway first.
 - **Routes requests** — forwards `/auth/...` calls to the Auth Service and `/content/...` calls to the Content Service. Also serves `/dummy/...` routes publicly without any auth check.
 - **Checks identity** — for content routes, it verifies the user's JWT token before forwarding. If the token is missing or fake, the request is rejected here and never reaches the other services. Dummy and auth routes are intentionally exempt.
 - **Logs all HTTP traffic** — a global `HttpLoggingInterceptor` logs every inbound request as `METHOD /path STATUS +Xms`, giving visibility into latency and error rates without adding any per-controller code.
+- **Rate-limits sensitive routes** — a global `ThrottlerGuard` enforces a 100 req/60 s ceiling on all routes. Login and register are tightened to 5 req/60 s per IP; content and link creation are limited to 20 req/60 s per authenticated user ID. Callers that exceed the limit receive `429 Too Many Requests`.
 - **Owns the Google OAuth flow** — the Gateway holds the `GoogleStrategy` (Passport) and the Google client credentials. It initiates the redirect to Google and handles the callback. After Google confirms identity, it forwards the profile to the Auth Service to issue a JWT pair. This keeps external OAuth logic at the boundary and auth business logic inside the Auth Service.
 
 The Gateway does not have its own database. It is purely a traffic director.
@@ -76,6 +77,7 @@ Key files:
 - `apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts` — handles `GET /s/:slug` with no guard; issues a 302 redirect to the client
 - `apps/gateway/src/templates/templates.controller.ts` — handles `GET /templates` (list) and `GET /templates/:id/preview` (rendered HTML); public, no guard; reads directly from `libs/contracts`
 - `apps/gateway/src/common/http-logging.interceptor.ts` — global interceptor registered in `main.ts`; logs every inbound request with method, path, status code, and latency
+- `apps/gateway/src/common/user-throttler.guard.ts` — custom `ThrottlerGuard` subclass; uses `userId` as the throttle key for authenticated routes and falls back to IP for public routes
 
 ---
 
