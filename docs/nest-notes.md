@@ -257,7 +257,56 @@ This is how `PrismaService` ensures the database connection opens when the servi
 
 ---
 
-## 7. Guards — Protecting Routes
+## 7. ConfigModule — Environment Variables and Validation
+
+**File:** `apps/gateway/src/app.module.ts`
+
+`@nestjs/config` provides a `ConfigModule` that loads environment variables from `.env` files and makes them available through a typed `ConfigService`. Pairing it with `joi` adds schema validation at startup — if a required variable is missing or has the wrong type, the application refuses to boot rather than failing silently at runtime.
+
+```ts
+// apps/gateway/src/app.module.ts
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,                // makes ConfigService available everywhere without re-importing
+      validationSchema: Joi.object({
+        GATEWAY_PORT: Joi.number().default(3000),
+        JWT_ACCESS_SECRET: Joi.string().required(),         // hard fail if missing
+        AUTH_SERVICE_URL: Joi.string().uri().required(),
+        ALLOWED_ORIGINS: Joi.string().default(''),          // optional, defaults to empty string
+        NODE_ENV: Joi.string()
+          .valid('development', 'production', 'test')
+          .default('development'),
+      }),
+    }),
+    ...
+  ],
+})
+export class AppModule {}
+```
+
+**Using `ConfigService`:**
+```ts
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(configService: ConfigService) {
+    super({
+      secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      //           ↑ throws if the variable is not set — safer than process.env which returns undefined
+    });
+  }
+}
+```
+
+`isGlobal: true` means you only register `ConfigModule` once in the root module and can inject `ConfigService` anywhere in the application without importing `ConfigModule` again. This is the standard pattern for configuration in a monorepo where multiple feature modules all need env vars.
+
+**Why validate at startup?**
+
+Without `validationSchema`, a misspelled variable name produces a runtime error deep inside a request handler — hard to trace and only discovered under load. With Joi validation, the application won't start at all if the config is wrong, and the error message tells you exactly which variable is the problem.
+
+---
+
+## 8. Guards — Protecting Routes
 
 **Files:** `apps/gateway/src/auth/jwt-auth.guard.ts`, `apps/gateway/src/content/content-proxy.controller.ts`
 
@@ -297,7 +346,7 @@ export class ContentProxyController {
 
 ---
 
-## 8. Strategies (Passport) — Authentication Logic
+## 9. Strategies (Passport) — Authentication Logic
 
 **Files:** `apps/gateway/src/auth/jwt.strategy.ts`, `apps/auth-service/src/auth/strategies/jwt.strategy.ts`, `apps/gateway/src/auth/strategies/google.strategy.ts`
 
@@ -305,17 +354,24 @@ export class ContentProxyController {
 
 ### JWT Strategy — verifying tokens on protected routes
 
+The strategy tries two token sources in order: the `access_token` cookie (set by the Google OAuth callback) and the `Authorization: Bearer` header (used by API clients like Postman). The first extractor that returns a non-null value wins — callers do not need to know which transport the server used.
+
 ```ts
 // apps/gateway/src/auth/jwt.strategy.ts
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      // ↑ tells Passport: "look for the token in the Authorization: Bearer <token> header"
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        // 1. Cookie-based (browser clients — set by Google OAuth callback)
+        (req: Request) =>
+          (req?.cookies as Record<string, string>)?.access_token ?? null,
+        // 2. Bearer header (API clients — Postman, curl, etc.)
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
 
-      secretOrKey: process.env.JWT_ACCESS_SECRET ?? '',
-      // ↑ the secret key used to verify the token's signature
+      secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      // ↑ secret is loaded from ConfigService, not read directly from process.env
     });
   }
 
@@ -330,11 +386,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 **How Guard and Strategy work together:**
 
 ```
-Request arrives with: Authorization: Bearer eyJhbGc...
+Request arrives with: Authorization: Bearer eyJhbGc...  (or cookie access_token=...)
 
   JwtAuthGuard triggers
        ↓
-  JwtStrategy.validate() is called
+  JwtStrategy runs the extractor chain:
+    → checks cookie access_token first
+    → falls back to Authorization: Bearer header
        ↓
   Token is verified against JWT_ACCESS_SECRET
        ↓
@@ -399,7 +457,7 @@ The Guard is the enforcer. The Strategy is the logic it delegates to. Both are r
 
 ---
 
-## 9. Pipes and Validation — Checking Incoming Data
+## 10. Pipes and Validation — Checking Incoming Data
 
 **Files:** `apps/auth-service/src/main.ts`, `apps/auth-service/src/auth/dto/register.dto.ts`
 
@@ -446,7 +504,7 @@ When the controller declares `@Body() dto: RegisterDto`, NestJS:
 
 ---
 
-## 10. Exception Handling — Returning Proper HTTP Errors
+## 11. Exception Handling — Returning Proper HTTP Errors
 
 **File:** `apps/auth-service/src/auth/auth.service.ts`
 
@@ -494,7 +552,7 @@ async findOneByOwner(id: string, ownerId: string) {
 
 ---
 
-## 11. HttpModule — Making Requests to Other Services
+## 12. HttpModule — Making Requests to Other Services
 
 **Files:** `apps/gateway/src/auth/auth-proxy.service.ts`, `apps/gateway/src/content/content-proxy.service.ts`
 
@@ -532,7 +590,7 @@ export class AuthModule {}
 
 ---
 
-## 12. ScheduleModule and `@Cron` — Recurring Background Jobs
+## 13. ScheduleModule and `@Cron` — Recurring Background Jobs
 
 **Files:** `apps/url-shortener/src/links/cleanup.service.ts`, `apps/url-shortener/src/app.module.ts`
 
@@ -586,7 +644,7 @@ The method is called automatically at the scheduled time. It does not need to be
 
 ---
 
-## 13. The `@Redirect()` Decorator — Issuing HTTP Redirects
+## 14. The `@Redirect()` Decorator — Issuing HTTP Redirects
 
 **File:** `apps/url-shortener/src/redirect/redirect.controller.ts`
 
@@ -633,7 +691,7 @@ export class UrlShortenerRedirectController {
 
 ---
 
-## 14. Logger — Structured Application Logging
+## 15. Logger — Structured Application Logging
 
 **Files:** `apps/auth-service/src/auth/auth.service.ts`, `apps/gateway/src/auth/auth-proxy.service.ts`, all `main.ts` files
 
@@ -718,7 +776,7 @@ The context in brackets (`[AuthService]`, `[HTTP]`, `[Bootstrap]`) is the string
 
 ---
 
-## 15. JwtModule — Signing and Verifying Tokens
+## 16. JwtModule — Signing and Verifying Tokens
 
 **File:** `apps/auth-service/src/auth/auth.module.ts`
 
@@ -757,7 +815,7 @@ const payload = this.jwtService.verify<{ sub: string; email: string }>(
 
 ---
 
-## 16. NestJS Monorepo — One Repo, Multiple Apps
+## 17. NestJS Monorepo — One Repo, Multiple Apps
 
 **File:** `nest-cli.json`
 
@@ -850,7 +908,7 @@ This pattern is appropriate when the data is static and known at build time. If 
 
 ---
 
-## 17. NestJS Microservices — Event-Driven Services
+## 18. NestJS Microservices — Event-Driven Services
 
 **Files:** `apps/notification-service/src/main.ts`, `apps/notification-service/src/notification/notification.service.ts`, `apps/auth-service/src/auth/auth.module.ts`, `apps/auth-service/src/auth/auth.service.ts`
 
@@ -998,7 +1056,7 @@ Normally NestJS injects by type — `private readonly jwtService: JwtService` wo
 
 ---
 
-## 18. NestFactory — Bootstrapping the Application (HTTP Services)
+## 19. NestFactory — Bootstrapping the Application (HTTP Services)
 
 **File:** `apps/auth-service/src/main.ts`
 
@@ -1022,7 +1080,7 @@ bootstrap();
 
 ---
 
-## 19. Interceptors — Cross-cutting Concerns
+## 20. Interceptors — Cross-cutting Concerns
 
 **File:** `apps/gateway/src/common/http-logging.interceptor.ts`
 
@@ -1104,7 +1162,7 @@ The `warn` level for 4xx/5xx means a monitoring system can alert on elevated war
 
 ---
 
-## 20. ThrottlerModule — Rate Limiting
+## 21. ThrottlerModule — Rate Limiting
 
 **Files:** `apps/gateway/src/app.module.ts`, `apps/gateway/src/common/user-throttler.guard.ts`, `apps/gateway/src/auth/auth-proxy.controller.ts`
 
@@ -1179,7 +1237,7 @@ When the limit is exceeded the guard automatically returns `429 Too Many Request
 
 ---
 
-## 21. How All the Concepts Connect — Full Picture
+## 22. How All the Concepts Connect — Full Picture
 
 Here is how a `POST /auth/register` request flows through all these NestJS concepts:
 
@@ -1230,14 +1288,15 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Route handling | `@Get()`, `@Post()`, `@Delete()` | All HTTP controllers |
 | Request data | `@Body()`, `@Param()`, `@Query()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
+| Config + env validation | `ConfigModule.forRoot()` + Joi schema + `ConfigService` | Gateway `app.module.ts`; `ConfigService` injected into `JwtStrategy` and proxy services |
 | Guard | `@UseGuards()` + `AuthGuard` | Gateway content + link controllers (dummy and redirect controllers intentionally have none) |
-| Strategy (Passport) — JWT | `PassportStrategy(Strategy)` | `jwt.strategy.ts` in gateway and auth-service |
+| Strategy (Passport) — JWT | `PassportStrategy(Strategy)` + `ExtractJwt.fromExtractors` | `jwt.strategy.ts` in gateway (cookie-first, then Bearer); `jwt.strategy.ts` in auth-service |
 | Strategy (Passport) — Google | `PassportStrategy(Strategy, 'google')` | `google.strategy.ts` in gateway |
 | Validation Pipe | `ValidationPipe` | All HTTP `main.ts` files |
 | DTO + class-validator | `@IsEmail()`, `@IsString()`, etc. | All `dto/` files |
 | HTTP exceptions | `UnauthorizedException`, `NotFoundException`, `GoneException`, etc. | Auth, content, and url-shortener services |
 | HTTP redirect | `@Redirect()` | `RedirectController` in url-shortener |
-| Raw response | `@Res()` + `res.redirect()` | Gateway `UrlShortenerRedirectController` |
+| Raw response | `@Res()` + `res.redirect()` / `res.clearCookie()` / `res.json()` | Gateway `UrlShortenerRedirectController` and `AuthProxyController` (logout, OAuth callback) |
 | HTTP client | `HttpModule` + `HttpService` | Gateway proxy services |
 | Cron jobs | `ScheduleModule.forRoot()` + `@Cron()` | `CleanupService` in url-shortener |
 | JWT | `JwtModule` + `JwtService` | Auth service |
@@ -1252,3 +1311,4 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Logger | `new Logger(ClassName.name)` | All service files and `main.ts` bootstrap functions |
 | Interceptor | `NestInterceptor` + `useGlobalInterceptors()` | `HttpLoggingInterceptor` in gateway |
 | Rate limiting | `ThrottlerModule` + `APP_GUARD` + `@Throttle()` | `UserThrottlerGuard` + auth and content controllers in gateway |
+| Health checks | `@nestjs/terminus` + `HealthCheckService` + `HttpHealthIndicator` | Gateway `health.controller.ts` (liveness + readiness); `PrismaHealthIndicator` in auth, content, url-shortener |

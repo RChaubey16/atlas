@@ -58,15 +58,19 @@ Every API call from a client (mobile app, browser, etc.) hits the Gateway first.
 
 - **Routes requests** — forwards `/auth/...` calls to the Auth Service and `/content/...` calls to the Content Service. Also serves `/dummy/...` routes publicly without any auth check.
 - **Checks identity** — for content routes, it verifies the user's JWT token before forwarding. If the token is missing or fake, the request is rejected here and never reaches the other services. Dummy and auth routes are intentionally exempt.
+- **Supports two auth transports** — the JWT strategy reads the `access_token` cookie first (set by Google OAuth or future login-with-cookies flows), then falls back to the `Authorization: Bearer <token>` header. Both work transparently on every protected route; callers do not need to know which one the server used.
 - **Logs all HTTP traffic** — a global `HttpLoggingInterceptor` logs every inbound request as `METHOD /path STATUS +Xms`, giving visibility into latency and error rates without adding any per-controller code.
 - **Rate-limits sensitive routes** — a global `ThrottlerGuard` enforces a 100 req/60 s ceiling on all routes. Login and register are tightened to 5 req/60 s per IP; content and link creation are limited to 20 req/60 s per authenticated user ID. Callers that exceed the limit receive `429 Too Many Requests`.
-- **Owns the Google OAuth flow** — the Gateway holds the `GoogleStrategy` (Passport) and the Google client credentials. It initiates the redirect to Google and handles the callback. After Google confirms identity, it forwards the profile to the Auth Service to issue a JWT pair. This keeps external OAuth logic at the boundary and auth business logic inside the Auth Service.
+- **Owns the Google OAuth flow** — the Gateway holds the `GoogleStrategy` (Passport) and the Google client credentials. It initiates the redirect to Google and handles the callback. After Google confirms identity, it sets `access_token` and `refresh_token` as `httpOnly` cookies (browser clients) and redirects to the configured frontend URL. Token pair JSON is also available for API clients.
+- **Health and readiness** — `GET /health` returns a liveness response (uptime, timestamp) with no external checks. `GET /health/ready` uses `@nestjs/terminus` to ping all three downstream services and returns a detailed status object.
+- **Swagger UI** — `GET /docs` serves an interactive OpenAPI explorer covering every route, request body shape, and expected response — no separate API reference needed for quick exploration.
 
 The Gateway does not have its own database. It is purely a traffic director.
 
 Key files:
-- `apps/gateway/src/auth/jwt.strategy.ts` — teaches the gateway how to read and verify a JWT token
+- `apps/gateway/src/auth/jwt.strategy.ts` — JWT strategy; extracts token from `access_token` cookie first, then falls back to `Authorization: Bearer` header
 - `apps/gateway/src/auth/jwt-auth.guard.ts` — the actual "bouncer" that blocks unauthenticated requests
+- `apps/gateway/src/auth/auth-proxy.controller.ts` — handles login, register, refresh, logout (clears cookies), and Google OAuth endpoints
 - `apps/gateway/src/auth/strategies/google.strategy.ts` — Passport Google OAuth 2.0 strategy; extracts `googleId`, `email`, and `name` from the Google profile
 - `apps/gateway/src/auth/guards/google-auth.guard.ts` — triggers the Google redirect on `GET /auth/google` and validates the callback on `GET /auth/google/callback`
 - `apps/gateway/src/auth/auth-proxy.service.ts` — forwards login/register/Google-profile calls to the Auth Service
@@ -76,6 +80,7 @@ Key files:
 - `apps/gateway/src/url-shortener/url-shortener-proxy.controller.ts` — guarded by `JwtAuthGuard`; passes `userId` from the token down to the URL Shortener
 - `apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts` — handles `GET /s/:slug` with no guard; issues a 302 redirect to the client
 - `apps/gateway/src/templates/templates.controller.ts` — handles `GET /templates` (list) and `GET /templates/:id/preview` (rendered HTML); public, no guard; reads directly from `libs/contracts`
+- `apps/gateway/src/health/health.controller.ts` — `GET /health` (liveness) and `GET /health/ready` (readiness; pings auth, content, and url-shortener services)
 - `apps/gateway/src/common/http-logging.interceptor.ts` — global interceptor registered in `main.ts`; logs every inbound request with method, path, status code, and latency
 - `apps/gateway/src/common/user-throttler.guard.ts` — custom `ThrottlerGuard` subclass; uses `userId` as the throttle key for authenticated routes and falls back to IP for public routes
 
@@ -93,6 +98,7 @@ What it does:
 - **Login** — checks the email and password, and if correct, returns two tokens.
 - **Refresh** — when your short-lived access token expires, you can swap your refresh token for a new pair without logging in again.
 - **Google profile** — internal endpoint called by the Gateway after a successful Google OAuth callback. Finds an existing user by `googleId`, links a `googleId` to an existing email/password account if the email matches, or creates a brand-new user. Always returns a JWT pair.
+- **Health check** — `GET /health` queries the database via a Prisma health indicator; used by the Gateway's readiness probe.
 
 **What is a JWT token?**
 Think of it as a digitally signed visitor badge. It contains your user ID and email, and it proves you are who you say you are without the server needing to look you up in the database every time. It has an expiry — access tokens last 15 minutes, refresh tokens last 7 days.
@@ -119,6 +125,7 @@ What it does:
 - **List my content** — returns all items belonging to the current user.
 - **Get one item** — returns a specific item, but only if the current user owns it (ownership validation).
 - **Dummy data** — serves hardcoded blogs and fake users at `/dummy/blogs` and `/dummy/users` with no auth required. Useful for quickly testing an HTTP client without needing an account.
+- **Health check** — `GET /health` queries the database via a Prisma health indicator; used by the Gateway's readiness probe.
 
 Key files:
 - `apps/content-service/src/content/content.service.ts` — the logic for creating, listing, and fetching content with ownership checks
@@ -171,6 +178,7 @@ The public redirect endpoint (`GET /s/:slug`) is the exception: the Gateway expo
 
 What it does:
 
+- **Health check** — `GET /health` queries the database via a Prisma health indicator; used by the Gateway's readiness probe.
 - **Create a short link** — takes a `targetUrl`, optional custom slug, optional `expiresInDays` (1–365), and a `noExpiry` flag; generates a random 6-character slug if none is supplied; defaults to 30-day expiry; `noExpiry: true` stores `null` for `expiresAt` so the link never expires.
 - **SSRF protection** — after URL format validation, the hostname is resolved via DNS and rejected if it resolves to a private or loopback address (`127.0.0.0/8`, `10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`, `::1`, etc.), preventing the redirect service from being used as a proxy to reach internal infrastructure.
 - **List my links** — returns paginated links for the authenticated user (default 20 per page, max 100), newest first, with a live click count and total/pages metadata.
@@ -368,6 +376,19 @@ If the templateId is unknown:
   Step 5 throws NotFoundException → 404 propagates back to the client
 ```
 
+### Logging Out
+
+```
+1. Client sends:  POST /auth/logout
+2. Gateway clears two httpOnly cookies: access_token and refresh_token
+   (domain scoped to .ruturaj.xyz in production; no domain restriction in development)
+3. Gateway returns: { success: true }
+
+Note: logout only clears cookies. The JWT itself is not invalidated server-side — it
+remains valid until its 15-minute expiry. API clients using Bearer tokens should simply
+discard the token on their end.
+```
+
 ### Creating and Following a Short Link
 
 ```
@@ -413,6 +434,11 @@ Services will be available at:
 - URL Shortener Service (internal): `http://localhost:3003`
 - Notification Service (internal): `http://localhost:3004`
 - RabbitMQ management UI: `http://localhost:15672` (guest / guest — local dev only)
+
+Useful URLs once the stack is running:
+- `http://localhost:3000/health` — gateway liveness check
+- `http://localhost:3000/health/ready` — gateway readiness (pings all downstream services)
+- `http://localhost:3000/docs` — Swagger / OpenAPI explorer (interactive, no auth required to browse)
 
 ---
 

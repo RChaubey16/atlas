@@ -43,6 +43,69 @@ The gateway enforces rate limits to prevent abuse. Exceeding any limit returns `
 
 > Google OAuth is a browser-only flow and cannot be tested with Postman's request builder.
 
+### Swagger UI
+
+The gateway serves an interactive API explorer at `http://localhost:3000/docs`. Every endpoint, request body shape, and expected response is listed there — useful for quick exploration without setting up Postman. Bearer token auth is supported directly in the UI via the **Authorize** button.
+
+---
+
+## Health Endpoints
+
+Health endpoints are **fully public** — no token required. Use them to verify the stack is running before making other requests.
+
+---
+
+### Gateway Liveness
+
+Returns the gateway's uptime and current timestamp. Does not check any downstream service — always responds as long as the gateway process is alive.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/health` |
+| **Auth** | None |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "status": "ok",
+  "uptime": 42,
+  "timestamp": "2026-05-02T10:00:00.000Z"
+}
+```
+
+---
+
+### Gateway Readiness
+
+Pings the Auth Service, Content Service, and URL Shortener Service. Returns a detailed status object for each downstream dependency. Use this to confirm the entire stack is reachable before running tests.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/health/ready` |
+| **Auth** | None |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "status": "ok",
+  "info": {
+    "auth-service": { "status": "up" },
+    "content-service": { "status": "up" },
+    "url-shortener": { "status": "up" }
+  },
+  "error": {},
+  "details": {
+    "auth-service": { "status": "up" },
+    "content-service": { "status": "up" },
+    "url-shortener": { "status": "up" }
+  }
+}
+```
+
+**Error Response — `503 Service Unavailable`:** returned when one or more downstream services are unreachable; the `error` field identifies which ones failed.
+
 ---
 
 ## Dummy Endpoints
@@ -1031,6 +1094,9 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 
 | Endpoint | Method | Auth Required | Purpose |
 |---|---|---|---|
+| `/health` | GET | No | Gateway liveness — uptime and timestamp |
+| `/health/ready` | GET | No | Gateway readiness — pings all downstream services |
+| `/docs` | GET | No | Swagger / OpenAPI interactive explorer |
 | `/dummy/blogs` | GET | No | 5 hardcoded blogs for testing |
 | `/dummy/users` | GET | No | 5 hardcoded fake users for testing |
 | `/auth/register` | POST | No | Create account, returns token pair |
