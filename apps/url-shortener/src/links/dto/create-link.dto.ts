@@ -1,10 +1,14 @@
 import {
-  IsUrl,
+  IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
+  IsUrl,
   Matches,
-  MinLength,
+  Max,
   MaxLength,
+  Min,
+  MinLength,
 } from 'class-validator';
 
 export class CreateLinkDto {
@@ -21,4 +25,14 @@ export class CreateLinkDto {
     message: 'Slug must be 3–50 alphanumeric/hyphen characters',
   })
   slug?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  expiresInDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  noExpiry?: boolean;
 }

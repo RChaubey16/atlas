@@ -24,7 +24,9 @@ describe('UrlShortenerProxyController', () => {
           provide: UrlShortenerProxyService,
           useValue: {
             createLink: jest.fn().mockResolvedValue(mockLink),
-            getMyLinks: jest.fn().mockResolvedValue([mockLink]),
+            getMyLinks: jest.fn().mockResolvedValue({ data: [mockLink], total: 1, page: 1, pages: 1 }),
+            updateLink: jest.fn().mockResolvedValue(mockLink),
+            getLinkAnalytics: jest.fn().mockResolvedValue({ totalClicks: 0, clicksByDay: [], lastClickedAt: null }),
             deleteLink: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -48,11 +50,34 @@ describe('UrlShortenerProxyController', () => {
   });
 
   describe('getMyLinks', () => {
-    it('should call getMyLinks with userId from request', async () => {
-      const result = await controller.getMyLinks(mockReq as any);
+    it('should call getMyLinks with userId and default pagination', async () => {
+      await controller.getMyLinks(mockReq as any);
 
-      expect(service.getMyLinks).toHaveBeenCalledWith('user-1');
-      expect(result).toEqual([mockLink]);
+      expect(service.getMyLinks).toHaveBeenCalledWith('user-1', undefined, undefined);
+    });
+
+    it('should forward page and limit query params', async () => {
+      await controller.getMyLinks(mockReq as any, '2', '10');
+
+      expect(service.getMyLinks).toHaveBeenCalledWith('user-1', '2', '10');
+    });
+  });
+
+  describe('updateLink', () => {
+    it('should call updateLink with slug, body, and userId from request', async () => {
+      const body = { targetUrl: 'https://new-url.com' };
+      const result = await controller.updateLink('abc123', body, mockReq as any);
+
+      expect(service.updateLink).toHaveBeenCalledWith('abc123', body, 'user-1');
+      expect(result).toEqual(mockLink);
+    });
+  });
+
+  describe('getLinkAnalytics', () => {
+    it('should call getLinkAnalytics with slug and userId from request', async () => {
+      await controller.getLinkAnalytics('abc123', mockReq as any);
+
+      expect(service.getLinkAnalytics).toHaveBeenCalledWith('abc123', 'user-1');
     });
   });
 
