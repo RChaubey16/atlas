@@ -131,6 +131,7 @@ These extract specific pieces from the incoming request:
 | `@Body()` | The entire JSON body of the request |
 | `@Body('key')` | A single field from the JSON body |
 | `@Param('id')` | A URL parameter like `/content/:id` |
+| `@Query('page')` | A query string parameter like `?page=2&limit=20` |
 | `@Headers('x-user-id')` | A specific HTTP header value |
 | `@Request()` | The full request object (used to access `req.user`) |
 
@@ -142,6 +143,21 @@ findOne(@Param('id') id: string, @Headers('x-user-id') userId: string) {
 }
 ```
 This handles `GET /content/some-uuid`. The `:id` part is dynamic — NestJS extracts it and gives it to the method via `@Param('id')`.
+
+**`@Query()` — query string parameters:**
+```ts
+@Get()
+findAll(
+  @Headers('x-user-id') userId: string,
+  @Query('page') page?: string,    // extracts ?page=2
+  @Query('limit') limit?: string,  // extracts ?limit=10
+) {
+  const p = parseInt(page ?? '1');
+  const l = Math.min(parseInt(limit ?? '20'), 100);
+  return this.linksService.findAllByUser(userId, p, l);
+}
+```
+Query parameters are always strings — parse them to numbers when needed. Mark them optional (`?`) when the client is not required to supply them.
 
 ---
 
@@ -1212,7 +1228,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Controller | `@Controller()` | Every `*.controller.ts` file |
 | Service / Provider | `@Injectable()` | Every `*.service.ts`, strategies, PrismaService |
 | Route handling | `@Get()`, `@Post()`, `@Delete()` | All HTTP controllers |
-| Request data | `@Body()`, `@Param()`, `@Headers()`, `@Request()` | All HTTP controllers |
+| Request data | `@Body()`, `@Param()`, `@Query()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
 | Guard | `@UseGuards()` + `AuthGuard` | Gateway content + link controllers (dummy and redirect controllers intentionally have none) |
 | Strategy (Passport) — JWT | `PassportStrategy(Strategy)` | `jwt.strategy.ts` in gateway and auth-service |

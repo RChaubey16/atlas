@@ -171,15 +171,18 @@ The public redirect endpoint (`GET /s/:slug`) is the exception: the Gateway expo
 
 What it does:
 
-- **Create a short link** — takes a `targetUrl` and an optional custom slug; generates a random 6-character slug if none is supplied; link expires after 30 days.
-- **List my links** — returns all links for the authenticated user, newest first, with a live click count.
+- **Create a short link** — takes a `targetUrl`, optional custom slug, optional `expiresInDays` (1–365), and a `noExpiry` flag; generates a random 6-character slug if none is supplied; defaults to 30-day expiry; `noExpiry: true` stores `null` for `expiresAt` so the link never expires.
+- **SSRF protection** — after URL format validation, the hostname is resolved via DNS and rejected if it resolves to a private or loopback address (`127.0.0.0/8`, `10.0.0.0/8`, `192.168.0.0/16`, `172.16.0.0/12`, `::1`, etc.), preventing the redirect service from being used as a proxy to reach internal infrastructure.
+- **List my links** — returns paginated links for the authenticated user (default 20 per page, max 100), newest first, with a live click count and total/pages metadata.
+- **Update a link** — `PATCH /links/:slug` lets the owner change the `targetUrl` and/or reset the expiry without changing the slug. The SSRF check is re-run if `targetUrl` changes.
 - **Delete a link** — removes a link; only the owner can delete their own links (403 if someone else tries).
-- **Resolve and redirect** — given a slug, records a click event and returns the `targetUrl`; throws 410 Gone if the link has expired.
+- **Analytics** — `GET /links/:slug/analytics` returns total all-time clicks, a daily click breakdown for the last 30 days, and the most recent click timestamp.
+- **Resolve and redirect** — given a slug, records a click event and returns the `targetUrl`; throws 410 Gone if the link has expired; never-expiring links (`expiresAt = null`) always resolve.
 - **Nightly cleanup** — a `@Cron` job at 2 AM automatically deletes all expired links from the database.
 
 Key files:
-- `apps/url-shortener/src/links/links.service.ts` — create, list, delete, and resolve logic; slug generation uses Node's built-in `crypto` module
-- `apps/url-shortener/src/links/links.controller.ts` — `POST /links`, `GET /links`, `DELETE /links/:slug`; validates the `x-user-id` header is present
+- `apps/url-shortener/src/links/links.service.ts` — create, list, update, delete, resolve, and analytics logic; includes `validateNoSsrf()` and `buildExpiry()` helpers; slug generation uses Node's built-in `crypto` module
+- `apps/url-shortener/src/links/links.controller.ts` — `POST /links`, `GET /links`, `GET /links/:slug/analytics`, `PATCH /links/:slug`, `DELETE /links/:slug`; validates the `x-user-id` header is present
 - `apps/url-shortener/src/links/cleanup.service.ts` — nightly cron job that deletes expired `ShortLink` rows; logs the deleted count on each run
 - `apps/url-shortener/src/redirect/redirect.controller.ts` — `GET /s/:slug`; calls `resolveAndTrack` and issues a 302 redirect using NestJS's `@Redirect()` decorator
 
@@ -274,7 +277,7 @@ The `owner_id` column is how the system enforces ownership — you can only read
 | slug | The short identifier in the URL (must be unique, e.g. `abc123`) |
 | targetUrl | The full URL the short link redirects to |
 | userId | The ID of the user who created it |
-| expiresAt | When this link stops working (30 days after creation) |
+| expiresAt | When this link stops working — nullable; `null` means the link never expires |
 | createdAt | When the link was created |
 
 **`ClickEvent` table** — owned by the URL Shortener Service
@@ -369,14 +372,15 @@ If the templateId is unknown:
 
 ```
 Creating (authenticated):
-1. Client sends:  POST /links  { targetUrl: "https://...", slug: "my-link" }
+1. Client sends:  POST /links  { targetUrl: "https://...", slug: "my-link", expiresInDays: 7 }
                   Authorization: Bearer <accessToken>
 2. Gateway checks the JWT token, extracts userId
 3. Gateway forwards to URL Shortener with header x-user-id: <userId>
-4. URL Shortener checks the slug is not already taken
-5. URL Shortener saves ShortLink with expiresAt = now + 30 days
-6. Returns { slug, targetUrl, expiresAt, createdAt, clickCount: 0 }
-7. Gateway passes the response back to the client
+4. URL Shortener resolves the hostname and rejects it if it points to a private address (SSRF check)
+5. URL Shortener checks the slug is not already taken
+6. URL Shortener saves ShortLink with expiresAt = now + 7 days (null if noExpiry: true)
+7. Returns { slug, targetUrl, expiresAt, createdAt, clickCount: 0 }
+8. Gateway passes the response back to the client
 
 Following (public, no token needed):
 1. Client sends:  GET /s/my-link
