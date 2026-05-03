@@ -70,7 +70,9 @@ export class EmailPlaygroundProxyController {
   }
 
   @Post('render')
-  @ApiOperation({ summary: 'Render blocks JSON to email-safe HTML (no auth required)' })
+  @ApiOperation({
+    summary: 'Render blocks JSON to email-safe HTML (no auth required)',
+  })
   renderHtml(@Body() body: unknown) {
     return this.proxy.renderHtml(body);
   }
