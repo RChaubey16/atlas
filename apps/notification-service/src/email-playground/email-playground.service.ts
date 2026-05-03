@@ -32,7 +32,9 @@ export class EmailPlaygroundService {
         blocksJson: dto.blocks as object[],
       },
     });
-    this.logger.log(`[EmailPlayground] Created template ${template.id} for user ${userId}`);
+    this.logger.log(
+      `[EmailPlayground] Created template ${template.id} for user ${userId}`,
+    );
     return template;
   }
 
@@ -52,7 +54,9 @@ export class EmailPlaygroundService {
   }
 
   async findOne(id: string, userId: string) {
-    const template = await this.prisma.emailTemplate.findUnique({ where: { id } });
+    const template = await this.prisma.emailTemplate.findUnique({
+      where: { id },
+    });
     if (!template) throw new NotFoundException('Template not found');
     if (template.userId !== userId) throw new ForbiddenException();
     return template;
@@ -89,11 +93,16 @@ export class EmailPlaygroundService {
     try {
       await this.email.sendRaw(dto.to, `[Test] ${template.name}`, html);
     } catch (err) {
-      this.logger.error(`[EmailPlayground] Send test failed for ${dto.to}:`, err);
+      this.logger.error(
+        `[EmailPlayground] Send test failed for ${dto.to}:`,
+        err,
+      );
       throw new InternalServerErrorException('Failed to send test email');
     }
 
-    this.logger.log(`[EmailPlayground] Sent test email to ${dto.to} (template: ${template.id})`);
+    this.logger.log(
+      `[EmailPlayground] Sent test email to ${dto.to} (template: ${template.id})`,
+    );
     return { sent: true };
   }
 }

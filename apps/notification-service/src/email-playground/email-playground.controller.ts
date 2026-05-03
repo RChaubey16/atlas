@@ -69,10 +69,7 @@ export class EmailPlaygroundController {
   }
 
   @Post('send-test')
-  sendTest(
-    @Body() dto: SendTestDto,
-    @Headers('x-user-id') userId: string,
-  ) {
+  sendTest(@Body() dto: SendTestDto, @Headers('x-user-id') userId: string) {
     requireUserId(userId);
     return this.service.sendTest(dto, userId);
   }

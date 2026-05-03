@@ -49,7 +49,10 @@ function wrap(inner: string): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">\n<tr><td>${inner}</td></tr>\n</table>`;
 }
 
-function renderHeading(p: Record<string, unknown>, vars: Record<string, string>): string {
+function renderHeading(
+  p: Record<string, unknown>,
+  vars: Record<string, string>,
+): string {
   const level = Math.min(Math.max(num(p.level, 2), 1), 6);
   const text = substituteVars(escapeHtml(str(p.text, 'Heading')), vars);
   const align = str(p.align, 'center');
@@ -57,20 +60,23 @@ function renderHeading(p: Record<string, unknown>, vars: Record<string, string>)
   const size = num(p.fontSize, 28);
   return wrap(
     `<td align="${align}" style="padding:16px 24px;">` +
-    `<h${level} style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.3;font-weight:700;">${text}</h${level}>` +
-    `</td>`,
+      `<h${level} style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.3;font-weight:700;">${text}</h${level}>` +
+      `</td>`,
   );
 }
 
-function renderParagraph(p: Record<string, unknown>, vars: Record<string, string>): string {
+function renderParagraph(
+  p: Record<string, unknown>,
+  vars: Record<string, string>,
+): string {
   const text = substituteVars(escapeHtml(str(p.text, '')), vars);
   const align = str(p.align, 'left');
   const color = safeColor(p.color ?? '#374151');
   const size = num(p.fontSize, 16);
   return wrap(
     `<td align="${align}" style="padding:8px 24px;">` +
-    `<p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.6;">${text}</p>` +
-    `</td>`,
+      `<p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.6;">${text}</p>` +
+      `</td>`,
   );
 }
 
@@ -81,13 +87,17 @@ function renderImage(p: Record<string, unknown>): string {
   const align = str(p.align, 'center');
   const link = safeUrl(p.link);
   const imgTag = `<img src="${src}" alt="${alt}" width="${width}" style="max-width:100%;height:auto;display:block;${align === 'center' ? 'margin:0 auto;' : ''}">`;
-  const inner = link && link !== '#'
-    ? `<a href="${link}" target="_blank" rel="noopener noreferrer">${imgTag}</a>`
-    : imgTag;
+  const inner =
+    link && link !== '#'
+      ? `<a href="${link}" target="_blank" rel="noopener noreferrer">${imgTag}</a>`
+      : imgTag;
   return wrap(`<td align="${align}" style="padding:16px 24px;">${inner}</td>`);
 }
 
-function renderButton(p: Record<string, unknown>, vars: Record<string, string>): string {
+function renderButton(
+  p: Record<string, unknown>,
+  vars: Record<string, string>,
+): string {
   const text = substituteVars(escapeHtml(str(p.text, 'Click Here')), vars);
   const href = safeUrl(p.url);
   const bg = safeColor(p.backgroundColor ?? '#6366f1');
@@ -97,8 +107,8 @@ function renderButton(p: Record<string, unknown>, vars: Record<string, string>):
   const size = num(p.fontSize, 16);
   return wrap(
     `<td align="${align}" style="padding:16px 24px;">` +
-    `<a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background-color:${bg};color:${fg};padding:12px 28px;border-radius:${radius}px;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;font-weight:600;">${text}</a>` +
-    `</td>`,
+      `<a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background-color:${bg};color:${fg};padding:12px 28px;border-radius:${radius}px;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;font-weight:600;">${text}</a>` +
+      `</td>`,
   );
 }
 
@@ -112,10 +122,15 @@ function renderDivider(p: Record<string, unknown>): string {
 
 function renderSpacer(p: Record<string, unknown>): string {
   const height = num(p.height, 24);
-  return wrap(`<td style="height:${height}px;line-height:${height}px;font-size:0;">&nbsp;</td>`);
+  return wrap(
+    `<td style="height:${height}px;line-height:${height}px;font-size:0;">&nbsp;</td>`,
+  );
 }
 
-function renderHero(p: Record<string, unknown>, vars: Record<string, string>): string {
+function renderHero(
+  p: Record<string, unknown>,
+  vars: Record<string, string>,
+): string {
   const title = substituteVars(escapeHtml(str(p.title, 'Welcome')), vars);
   const subtitle = substituteVars(escapeHtml(str(p.subtitle, '')), vars);
   const bg = safeColor(p.backgroundColor ?? '#6366f1');
@@ -129,10 +144,12 @@ function renderHero(p: Record<string, unknown>, vars: Record<string, string>): s
     : '';
   return wrap(
     `<td align="center" style="padding:48px 24px;background-color:${bg};">` +
-    `<h1 style="margin:0 0 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:36px;color:${fg};line-height:1.2;">${title}</h1>` +
-    (subtitle ? `<p style="margin:0 0 ${btnText ? '24px' : '0'};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:18px;color:${fg};opacity:0.85;">${subtitle}</p>` : '') +
-    btnHtml +
-    `</td>`,
+      `<h1 style="margin:0 0 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:36px;color:${fg};line-height:1.2;">${title}</h1>` +
+      (subtitle
+        ? `<p style="margin:0 0 ${btnText ? '24px' : '0'};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:18px;color:${fg};opacity:0.85;">${subtitle}</p>`
+        : '') +
+      btnHtml +
+      `</td>`,
   );
 }
 
@@ -143,21 +160,25 @@ function renderLogo(p: Record<string, unknown>): string {
   const align = str(p.align, 'center');
   const link = safeUrl(p.link);
   const imgTag = `<img src="${src}" alt="${alt}" width="${width}" style="max-width:100%;height:auto;display:block;${align === 'center' ? 'margin:0 auto;' : ''}">`;
-  const inner = link && link !== '#'
-    ? `<a href="${link}" target="_blank" rel="noopener noreferrer">${imgTag}</a>`
-    : imgTag;
+  const inner =
+    link && link !== '#'
+      ? `<a href="${link}" target="_blank" rel="noopener noreferrer">${imgTag}</a>`
+      : imgTag;
   return wrap(`<td align="${align}" style="padding:24px;">${inner}</td>`);
 }
 
-function renderFooter(p: Record<string, unknown>, vars: Record<string, string>): string {
+function renderFooter(
+  p: Record<string, unknown>,
+  vars: Record<string, string>,
+): string {
   const text = substituteVars(escapeHtml(str(p.text, '')), vars);
   const color = safeColor(p.color ?? '#9ca3af');
   const size = num(p.fontSize, 12);
   const align = str(p.align, 'center');
   return wrap(
     `<td align="${align}" style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;">` +
-    `<p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.5;">${text}</p>` +
-    `</td>`,
+      `<p style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:${size}px;color:${color};line-height:1.5;">${text}</p>` +
+      `</td>`,
   );
 }
 
@@ -178,24 +199,35 @@ function renderSocial(p: Record<string, unknown>): string {
     .join('');
   return wrap(
     `<td align="${align}" style="padding:16px 24px;">` +
-    `<table cellpadding="0" cellspacing="0" border="0" role="presentation" ${align === 'center' ? 'align="center"' : ''}><tr>${cells}</tr></table>` +
-    `</td>`,
+      `<table cellpadding="0" cellspacing="0" border="0" role="presentation" ${align === 'center' ? 'align="center"' : ''}><tr>${cells}</tr></table>` +
+      `</td>`,
   );
 }
 
 function renderBlock(block: Block, vars: Record<string, string>): string {
   switch (block.type) {
-    case 'heading': return renderHeading(block.props, vars);
-    case 'paragraph': return renderParagraph(block.props, vars);
-    case 'image': return renderImage(block.props);
-    case 'button': return renderButton(block.props, vars);
-    case 'divider': return renderDivider(block.props);
-    case 'spacer': return renderSpacer(block.props);
-    case 'hero': return renderHero(block.props, vars);
-    case 'logo': return renderLogo(block.props);
-    case 'footer': return renderFooter(block.props, vars);
-    case 'social': return renderSocial(block.props);
-    default: return '';
+    case 'heading':
+      return renderHeading(block.props, vars);
+    case 'paragraph':
+      return renderParagraph(block.props, vars);
+    case 'image':
+      return renderImage(block.props);
+    case 'button':
+      return renderButton(block.props, vars);
+    case 'divider':
+      return renderDivider(block.props);
+    case 'spacer':
+      return renderSpacer(block.props);
+    case 'hero':
+      return renderHero(block.props, vars);
+    case 'logo':
+      return renderLogo(block.props);
+    case 'footer':
+      return renderFooter(block.props, vars);
+    case 'social':
+      return renderSocial(block.props);
+    default:
+      return '';
   }
 }
 

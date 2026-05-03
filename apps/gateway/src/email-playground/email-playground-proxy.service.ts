@@ -50,16 +50,14 @@ export class EmailPlaygroundProxyService {
 
     try {
       const url = `${this.baseUrl}${path}`;
-      let obs;
-      if (method === 'get') {
-        obs = this.http.get<unknown>(url, { headers });
-      } else if (method === 'delete') {
-        obs = this.http.delete<unknown>(url, { headers });
-      } else if (method === 'patch') {
-        obs = this.http.patch<unknown>(url, body, { headers });
-      } else {
-        obs = this.http.post<unknown>(url, body, { headers });
-      }
+      const obs =
+        method === 'get'
+          ? this.http.get<unknown>(url, { headers })
+          : method === 'delete'
+            ? this.http.delete<unknown>(url, { headers })
+            : method === 'patch'
+              ? this.http.patch<unknown>(url, body, { headers })
+              : this.http.post<unknown>(url, body, { headers });
       const result = await firstValueFrom(obs);
       return (result as { data: unknown }).data;
     } catch (err) {
@@ -76,7 +74,10 @@ export class EmailPlaygroundProxyService {
       this.logger.warn(`Upstream error [${upstream}] ${status}`);
       const message =
         typeof data?.message === 'string' ? data.message : 'An error occurred';
-      throw new HttpException({ ...data, displayErrorMessage: message }, status);
+      throw new HttpException(
+        { ...data, displayErrorMessage: message },
+        status,
+      );
     }
     this.logger.error(`Unexpected error [${upstream}]`, err);
     throw err as Error;
