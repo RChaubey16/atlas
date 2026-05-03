@@ -153,6 +153,7 @@ services:
     command: pnpm run start:notification
     environment:
       NOTIFICATION_SERVICE_PORT: 3004
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
       RABBITMQ_URL: amqp://guest:guest@atlas-rabbitmq:5672
       RESEND_API_KEY: ${RESEND_API_KEY}
       SMTP_FROM: ${SMTP_FROM}
@@ -164,6 +165,8 @@ services:
       retries: 3
       start_period: 30s
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
 

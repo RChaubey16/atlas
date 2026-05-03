@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { NotificationModule } from './notification.module';
@@ -6,6 +6,8 @@ import { NotificationModule } from './notification.module';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(NotificationModule);
+
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
 
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.RMQ,

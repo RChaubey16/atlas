@@ -4,6 +4,7 @@ import * as Joi from 'joi';
 
 import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
+import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { NotificationController } from './notification/notification.controller';
 import { NotificationService } from './notification/notification.service';
 
@@ -13,6 +14,7 @@ import { NotificationService } from './notification/notification.service';
       isGlobal: true,
       validationSchema: Joi.object({
         NOTIFICATION_SERVICE_PORT: Joi.number().default(3004),
+        DATABASE_URL: Joi.string().required(),
         RABBITMQ_URL: Joi.string().default('amqp://guest:guest@localhost:5672'),
         RESEND_API_KEY: Joi.string().required(),
         SMTP_FROM: Joi.string().default('Atlas <onboarding@resend.dev>'),
@@ -21,6 +23,7 @@ import { NotificationService } from './notification/notification.service';
     }),
     EmailModule,
     HealthModule,
+    UserTemplatesModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService],

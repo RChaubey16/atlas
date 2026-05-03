@@ -12,6 +12,7 @@ import { DummyModule } from './dummy/dummy.module';
 import { UrlShortenerModule } from './url-shortener/url-shortener.module';
 import { NotificationModule } from './notification/notification.module';
 import { TemplatesModule } from './templates/templates.module';
+import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { HealthModule } from './health/health.module';
 import { UserThrottlerGuard } from './common/user-throttler.guard';
 
@@ -48,6 +49,7 @@ import { UserThrottlerGuard } from './common/user-throttler.guard';
     UrlShortenerModule,
     NotificationModule,
     TemplatesModule,
+    UserTemplatesModule,
     HealthModule,
   ],
   controllers: [AppController],

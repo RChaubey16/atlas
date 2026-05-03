@@ -44,3 +44,16 @@ model ClickEvent {
   clickedAt   DateTime  @default(now())
   shortLink   ShortLink @relation(fields: [shortLinkId], references: [id], onDelete: Cascade)
 }
+
+model UserTemplate {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  subject   String
+  html      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("user_templates")
+}
