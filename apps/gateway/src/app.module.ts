@@ -9,6 +9,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { ContentModule } from './content/content.module';
 import { DummyModule } from './dummy/dummy.module';
+import { EmailPlaygroundModule } from './email-playground/email-playground.module';
 import { UrlShortenerModule } from './url-shortener/url-shortener.module';
 import { NotificationModule } from './notification/notification.module';
 import { TemplatesModule } from './templates/templates.module';
@@ -46,6 +47,7 @@ import { UserThrottlerGuard } from './common/user-throttler.guard';
     AuthModule,
     ContentModule,
     DummyModule,
+    EmailPlaygroundModule,
     UrlShortenerModule,
     NotificationModule,
     TemplatesModule,

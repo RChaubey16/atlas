@@ -57,3 +57,17 @@ model UserTemplate {
   @@index([userId])
   @@map("user_templates")
 }
+
+model EmailTemplate {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  description String   @default("")
+  blocksJson  Json     @map("blocks_json")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("email_templates")
+}

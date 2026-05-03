@@ -19,6 +19,16 @@ export class EmailService {
     );
   }
 
+  async sendRaw(to: string, subject: string, html: string): Promise<void> {
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject,
+      html,
+    });
+    if (error) throw new Error(error.message);
+  }
+
   async sendMail(
     to: string,
     template: EmailTemplate,

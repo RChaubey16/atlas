@@ -3,7 +3,9 @@ import { ConfigModule } from '@nestjs/config';
 import * as Joi from 'joi';
 
 import { EmailModule } from './email/email.module';
+import { EmailPlaygroundModule } from './email-playground/email-playground.module';
 import { HealthModule } from './health/health.module';
+import { PrismaModule } from './prisma/prisma.module';
 import { UserTemplatesModule } from './user-templates/user-templates.module';
 import { NotificationController } from './notification/notification.controller';
 import { NotificationService } from './notification/notification.service';
@@ -21,7 +23,9 @@ import { NotificationService } from './notification/notification.service';
         INTERNAL_NOTIFICATION_KEY: Joi.string().required(),
       }),
     }),
+    PrismaModule,
     EmailModule,
+    EmailPlaygroundModule,
     HealthModule,
     UserTemplatesModule,
   ],
