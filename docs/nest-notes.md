@@ -935,7 +935,7 @@ await app.listen();  // connects to RabbitMQ — no HTTP port opened
 
 ### Bootstrapping a Hybrid App (HTTP + microservice in one process)
 
-The Notification Service runs as a **hybrid** — it handles both HTTP requests and RabbitMQ messages in the same process. You start with `NestFactory.create()` (HTTP), then attach the microservice transport with `connectMicroservice()`:
+The Notification Service runs as a **hybrid** — it handles both HTTP requests and RabbitMQ messages in the same process, and it also has its own Prisma connection for storing user-defined templates. You start with `NestFactory.create()` (HTTP), then attach the microservice transport with `connectMicroservice()`:
 
 ```ts
 // apps/notification-service/src/main.ts
@@ -1053,6 +1053,7 @@ Normally NestJS injects by type — `private readonly jwtService: JwtService` wo
 | Route handler | `@Get()`, `@Post()` | `@EventPattern()` | Both, in the same controller |
 | Data extraction | `@Body()`, `@Param()` | `@Payload()` | Both |
 | Response | Returns data to caller | Acknowledges message | Returns data (HTTP) or acknowledges (RMQ) |
+| Database | Yes (auth, content, url-shortener) | — | Yes (stores user-defined templates) |
 
 ---
 
@@ -1312,3 +1313,4 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Interceptor | `NestInterceptor` + `useGlobalInterceptors()` | `HttpLoggingInterceptor` in gateway |
 | Rate limiting | `ThrottlerModule` + `APP_GUARD` + `@Throttle()` | `UserThrottlerGuard` + auth and content controllers in gateway |
 | Health checks | `@nestjs/terminus` + `HealthCheckService` + `HttpHealthIndicator` | Gateway `health.controller.ts` (liveness + readiness); `PrismaHealthIndicator` in auth, content, url-shortener |
+| Multi-module hybrid service | `NestFactory.create()` + `connectMicroservice()` + own Prisma | Notification service: RabbitMQ consumer, HTTP server, and DB-backed user-templates CRUD in one process |

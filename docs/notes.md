@@ -27,12 +27,13 @@ You (the user / app)
 [Auth  [Content     [URL Shortener    [Notification
 Svc]    Service]      Service]          Service]
    |        |              |                |
-   └────────┴──────────────┘           Resend API
-                 ▼
+   └────────┴──────────────┘           PostgreSQL
+                 ▼                     Resend API
            [ PostgreSQL ]  ← The database where everything is saved
 
 [Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ]
 [API Gateway]  --[POST /notify/send  ]--> [ Notification Service ] (internal HTTP, x-internal-key)
+[API Gateway]  --[/user-templates    ]--> [ Notification Service ] (CRUD, internal HTTP, x-internal-key)
 [API Gateway]  --[GET  /templates    ]--> reads from libs/contracts (no downstream service call)
 ```
 
@@ -80,6 +81,8 @@ Key files:
 - `apps/gateway/src/url-shortener/url-shortener-proxy.controller.ts` — guarded by `JwtAuthGuard`; passes `userId` from the token down to the URL Shortener
 - `apps/gateway/src/url-shortener/url-shortener-redirect.controller.ts` — handles `GET /s/:slug` with no guard; issues a 302 redirect to the client
 - `apps/gateway/src/templates/templates.controller.ts` — handles `GET /templates` (list) and `GET /templates/:id/preview` (rendered HTML); public, no guard; reads directly from `libs/contracts`
+- `apps/gateway/src/user-templates/user-templates-proxy.controller.ts` — JWT-protected CRUD for `/user-templates`; proxies to Notification Service with `x-internal-key` and `x-user-id` headers
+- `apps/gateway/src/user-templates/user-templates-proxy.service.ts` — forwards create/list/get/delete calls to `http://notification-service:3004/user-templates`
 - `apps/gateway/src/health/health.controller.ts` — `GET /health` (liveness) and `GET /health/ready` (readiness; pings auth, content, and url-shortener services)
 - `apps/gateway/src/common/http-logging.interceptor.ts` — global interceptor registered in `main.ts`; logs every inbound request with method, path, status code, and latency
 - `apps/gateway/src/common/user-throttler.guard.ts` — custom `ThrottlerGuard` subclass; uses `userId` as the throttle key for authenticated routes and falls back to IP for public routes
@@ -136,15 +139,13 @@ Key files:
 
 ### 4. Notification Service (`apps/notification-service/`) — Port 3004 (HTTP) + RabbitMQ
 
-**A general-purpose email sending service with a template registry.**
+**A general-purpose email sending service with a built-in template registry and user-owned custom templates.**
 
-Unlike the other services, the Notification Service runs as a **hybrid** — it is both a standard HTTP server (port 3004) and a RabbitMQ microservice in the same process. This means it can receive emails triggers two ways: via an event from the message queue, or via a direct HTTP call from the Gateway.
+Unlike the other services, the Notification Service runs as a **hybrid** — it is both a standard HTTP server (port 3004) and a RabbitMQ microservice in the same process. This means it can receive email triggers two ways: via an event from the message queue, or via a direct HTTP call from the Gateway.
 
-The HTTP endpoint (`POST /notify/send`) is **internal-only**, protected by a shared secret header (`x-internal-key`). The Gateway validates the caller's JWT first, then forwards the request to the Notification Service with the internal key. External clients never talk to port 3004 directly.
+All HTTP endpoints are **internal-only**, protected by a shared secret header (`x-internal-key`). The Gateway validates the caller's JWT first, then forwards requests with the internal key. External clients never talk to port 3004 directly.
 
-**Template registry** — instead of hardcoding a single email template, the service maintains a named registry of templates. Callers identify the template they want by a string ID and supply the template-specific data as a free-form object.
-
-Available templates:
+**Built-in template registry** — a set of named system templates defined in `libs/contracts`. Callers identify the template by string ID and supply template-specific data as a free-form object.
 
 | Template ID | Required data | Optional data |
 |---|---|---|
@@ -152,11 +153,14 @@ Available templates:
 | `password-reset` | `email`, `resetLink` | — |
 | `feature-announcement` | `email`, `featureName`, `description` | `ctaLabel`, `ctaUrl` |
 
+**User-defined templates** — users can create their own custom HTML email templates and store them in the database. These are managed via `/user-templates` (CRUD, authenticated) and can be referenced like any built-in template when sending email.
+
 What it does:
 
 - **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup; sends a welcome email when a new user registers.
-- **Handle `POST /notify/send`** — accepts `{ templateId, to[], templateData }`, looks up the template, sends to all recipients in parallel via Resend.
-- **Fail gracefully** — Resend errors are caught and logged; the message is acknowledged so the queue is not blocked.
+- **Handle `POST /notify/send`** — accepts `{ templateId, to[], templateData }`, looks up the template in the built-in registry, sends to all recipients in parallel via Resend.
+- **Manage user templates** — `POST /user-templates`, `GET /user-templates`, `GET /user-templates/:id`, `DELETE /user-templates/:id`; all internal-only, keyed by `x-user-id`; persisted to the `user_templates` database table.
+- **Fail gracefully** — Resend errors are caught and logged; the RabbitMQ message is acknowledged so the queue is not blocked.
 
 Key files:
 - `apps/notification-service/src/notification/notification.controller.ts` — `@EventPattern` handler (RMQ) and `POST /notify/send` (HTTP), guarded by `InternalKeyGuard`
@@ -165,6 +169,9 @@ Key files:
 - `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; sends the rendered HTML
 - `apps/notification-service/src/email/templates/` — one file per template; each implements `EmailTemplate<T>` with its own typed data shape
 - `apps/notification-service/src/guards/internal-key.guard.ts` — rejects HTTP requests where `x-internal-key` does not match `INTERNAL_NOTIFICATION_KEY`
+- `apps/notification-service/src/user-templates/user-templates.controller.ts` — CRUD for user-defined templates; protected by `InternalKeyGuard`, reads `x-user-id` header for ownership
+- `apps/notification-service/src/user-templates/user-templates.service.ts` — creates, lists, fetches, and deletes `UserTemplate` rows via Prisma
+- `apps/notification-service/src/prisma/prisma.service.ts` — Prisma connection for the notification service's own database access
 
 ---
 
@@ -297,6 +304,19 @@ The `owner_id` column is how the system enforces ownership — you can only read
 
 `ClickEvent` rows are deleted automatically when their parent `ShortLink` is deleted (`onDelete: Cascade`). The click count displayed in the API is derived by counting how many `ClickEvent` rows belong to a given `ShortLink`.
 
+**`user_templates` table** — owned by the Notification Service
+| Column | What it stores |
+|---|---|
+| id | A unique ID (UUID) for every template |
+| userId | The ID of the user who created it |
+| name | A human-readable label for the template |
+| subject | The email subject line |
+| html | The full HTML body of the email |
+| createdAt | When the template was created |
+| updatedAt | When the template was last modified |
+
+User-defined templates are completely separate from the built-in system templates in `libs/contracts`. They are stored per-user and can be managed via the `/user-templates` API endpoints.
+
 ---
 
 ## How a Typical Request Flows
@@ -389,6 +409,33 @@ remains valid until its 15-minute expiry. API clients using Bearer tokens should
 discard the token on their end.
 ```
 
+### Managing a Custom Email Template
+
+```
+Creating a custom template (authenticated):
+1. Client sends:  POST /user-templates  { name, subject, html }
+                  Authorization: Bearer <accessToken>
+2. Gateway checks the JWT token, extracts userId
+3. Gateway forwards to Notification Service with headers:
+     x-internal-key: <INTERNAL_NOTIFICATION_KEY>
+     x-user-id: <userId>
+4. Notification Service saves the template to user_templates table
+5. Returns the saved template object
+
+Listing templates:
+1. Client sends:  GET /user-templates
+                  Authorization: Bearer <accessToken>
+2. Gateway checks JWT, forwards to Notification Service with userId header
+3. Notification Service returns all templates for that user
+
+Deleting (204 No Content):
+1. Client sends:  DELETE /user-templates/:id
+                  Authorization: Bearer <accessToken>
+2. Gateway checks JWT, forwards with userId
+3. Notification Service checks ownership (throws 404 if not found or owned by another user)
+4. Deletes the row — no response body
+```
+
 ### Creating and Following a Short Link
 
 ```
@@ -411,6 +458,39 @@ Following (public, no token needed):
 5. URL Shortener returns { url: "https://...", statusCode: 302 }
 6. Gateway issues a 302 redirect to the client's browser
 7. Browser follows the redirect to the target URL
+```
+
+---
+
+## Frontends (`frontends/`)
+
+Two Next.js (App Router) frontends ship alongside the backend, each talking exclusively to the API Gateway.
+
+### `frontends/links` — URL Shortener UI
+
+A clean dashboard for managing short links. Deployed at `links.ruturaj.xyz`.
+
+- Google OAuth login (redirects through the gateway's `/auth/google` flow; cookies are set automatically)
+- Create short links from any URL, with optional custom slug and expiry
+- View all links with live click counts
+- Delete links
+- Protected dashboard — unauthenticated users are redirected to the login page
+
+### `frontends/pulse` — Email / Notification UI
+
+A management interface for email templates and sending. Deployed at `pulse.ruturaj.xyz`.
+
+- Browse the built-in system templates (`GET /templates`) and preview their rendered HTML
+- Manage user-defined custom templates (`/user-templates` CRUD)
+- Send emails directly via the gateway's `POST /notify/send` endpoint
+
+Both frontends use **Tailwind CSS** and **TypeScript**. They share no code with each other or with the backend.
+
+**Running a frontend locally:**
+```bash
+cd frontends/links   # or frontends/pulse
+pnpm install
+pnpm dev             # links runs on http://localhost:3004 by default
 ```
 
 ---
@@ -489,3 +569,4 @@ The architecture is designed so these can be added without changing any existing
 - **Job Worker** — handles background tasks and queues
 - **Redis caching** — speeds up frequent database reads
 - **RBAC** — role-based permissions (admin, editor, viewer)
+- **Custom-template email sending** — allow `/notify/send` to resolve a user template by ID (currently only built-in registry templates are supported)

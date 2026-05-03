@@ -855,13 +855,143 @@ Sends an email to one or more recipients using a named template. The gateway for
 
 ---
 
+## User Template Endpoints
+
+User template endpoints **require** authentication. They manage custom HTML email templates that are stored per-user in the database.
+
+- **Browser clients** — cookies sent automatically.
+- **Postman / API clients** — use `Authorization: Bearer <accessToken>`.
+
+---
+
+### 18. Create a Custom Email Template
+
+Stores a new custom email template owned by the authenticated user.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/user-templates` |
+| **Auth** | Cookie or Bearer Token |
+
+**Body (raw JSON):**
+```json
+{
+  "name": "My Promo Template",
+  "subject": "Special offer just for you",
+  "html": "<h1>Hello!</h1><p>Check out our latest deals.</p>"
+}
+```
+
+**Fields:**
+- `name` — required, max 100 characters. A label to identify the template in your list.
+- `subject` — required, max 255 characters. The email subject line.
+- `html` — required. The full HTML body of the email.
+
+**Success Response — `201 Created`:**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userId": "b1c2d3e4-f5a6-7890-abcd-123456789abc",
+  "name": "My Promo Template",
+  "subject": "Special offer just for you",
+  "html": "<h1>Hello!</h1><p>Check out our latest deals.</p>",
+  "createdAt": "2026-05-03T10:00:00.000Z",
+  "updatedAt": "2026-05-03T10:00:00.000Z"
+}
+```
+
+**Error Responses:**
+
+`400 Bad Request` — validation failed (missing field, name too long, etc.).
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 19. List My Custom Templates
+
+Returns all custom templates owned by the authenticated user, newest first.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/user-templates` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "userId": "b1c2d3e4-f5a6-7890-abcd-123456789abc",
+    "name": "My Promo Template",
+    "subject": "Special offer just for you",
+    "html": "<h1>Hello!</h1><p>Check out our latest deals.</p>",
+    "createdAt": "2026-05-03T10:00:00.000Z",
+    "updatedAt": "2026-05-03T10:00:00.000Z"
+  }
+]
+```
+
+Returns an empty array `[]` if the user has no custom templates.
+
+---
+
+### 20. Get One Custom Template
+
+Returns a single custom template by ID. Only succeeds if the template belongs to the authenticated user.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/user-templates/:id` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/user-templates/a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+
+**Success Response — `200 OK`:** same shape as a single object from the list response.
+
+**Error Responses:**
+
+`404 Not Found` — no template with that ID, or it belongs to a different user.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 21. Delete a Custom Template
+
+Deletes one of the authenticated user's custom templates. Returns no body on success.
+
+| | |
+|---|---|
+| **Method** | `DELETE` |
+| **URL** | `http://localhost:3000/user-templates/:id` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/user-templates/a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+
+**Success Response — `204 No Content`** (empty body)
+
+**Error Responses:**
+
+`404 Not Found` — no template with that ID, or it belongs to a different user.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
 ## Template Endpoints
 
 Template endpoints are **public** — no authentication required. Use them to display the available email templates and preview their rendered HTML.
 
 ---
 
-### 16. List Available Templates
+### 22. List Available Templates
 
 Returns every email template in the system along with its field definitions.
 
@@ -912,7 +1042,7 @@ Returns every email template in the system along with its field definitions.
 
 ---
 
-### 17. Preview a Template
+### 23. Preview a Template
 
 Renders a specific template using its built-in sample data and returns the HTML. The `email` field in the preview response shows what the recipient would actually see.
 
@@ -1048,17 +1178,25 @@ Body: {
 }
 ```
 
-**Step 11 — List available templates (no auth needed)**
+**Step 11 — List built-in templates (no auth needed)**
 ```
 GET /templates
 ```
-Returns all template IDs, names, descriptions, subjects, and field definitions — useful for populating a template picker UI.
+Returns all built-in template IDs, names, descriptions, subjects, and field definitions — useful for populating a template picker UI.
 
-**Step 12 — Preview a template (no auth needed)**
+**Step 12 — Preview a built-in template (no auth needed)**
 ```
 GET /templates/feature-announcement/preview
 ```
 Returns rendered HTML using built-in sample data so you can see exactly what the email looks like before sending.
+
+**Step 12b — Create a custom email template**
+```
+POST /user-templates
+Authorization: Bearer <accessToken>
+Body: { "name": "My Template", "subject": "Hello!", "html": "<h1>Hi there</h1>" }
+```
+Returns the saved template with its `id`. Use `GET /user-templates` to list all your templates, `GET /user-templates/:id` to fetch one, and `DELETE /user-templates/:id` to remove it.
 
 **Step 13 — Log out**
 ```
@@ -1115,5 +1253,9 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/links/:slug` | DELETE | Yes | Delete a short link |
 | `/s/:slug` | GET | No | Follow a short link (302 redirect) |
 | `/notify/send` | POST | Yes | Send a templated email (`welcome`, `password-reset`, `feature-announcement`) |
-| `/templates` | GET | No | List all available email templates with field metadata |
-| `/templates/:id/preview` | GET | No | Render a template with sample data, returns `{ id, subject, html }` |
+| `/user-templates` | POST | Yes | Create a custom email template (name, subject, html) |
+| `/user-templates` | GET | Yes | List your custom email templates |
+| `/user-templates/:id` | GET | Yes | Get one custom template by ID |
+| `/user-templates/:id` | DELETE | Yes | Delete a custom template (204 No Content) |
+| `/templates` | GET | No | List all built-in email templates with field metadata |
+| `/templates/:id/preview` | GET | No | Render a built-in template with sample data, returns `{ id, subject, html }` |
