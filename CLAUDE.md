@@ -91,7 +91,7 @@ plan/
 ## Key Gotchas
 
 - **Prisma v7** — `url` is no longer allowed in `prisma/schema.prisma`. The DB connection is passed via `PrismaPg` adapter in `PrismaService` constructor.
-- **`prisma generate` in Docker** — must run after `COPY . .` in the Dockerfile, before any TypeScript build or watch. Without it, `@prisma/client` exports nothing.
+- **`prisma generate` in Docker** — must run in the **production stage** of every service Dockerfile that uses Prisma, not just the builder stage. The pattern used by all service Dockerfiles: `COPY prisma ./prisma` then `RUN npx prisma generate` after `pnpm install --prod`. `npx` downloads the prisma CLI if it's absent from `--prod` node_modules. The gateway Dockerfile skips this because it doesn't use Prisma directly.
 - **Module resolution** — uses `"module": "commonjs"` (not `nodenext`). Changed during monorepo conversion for compatibility with path aliases.
 - **JWT `expiresIn`** — must be a number (seconds), not a string like `'15m'`, due to `@nestjs/jwt` v11 type constraints.
 - **Notification Service is now a hybrid app** — bootstraps with `NestFactory.create()`, then calls `app.connectMicroservice()` for RabbitMQ and `app.listen(3004)` for HTTP. It is no longer pure microservice-only.
