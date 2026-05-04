@@ -1,5 +1,11 @@
 # Atlas
 
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 A production-style microservices backend built with NestJS. Demonstrates clean service boundaries, an API Gateway pattern, JWT authentication, Google OAuth, event-driven notifications, and URL shortening — all running in Docker.
 
 ---
@@ -14,7 +20,7 @@ Atlas is split into five independent services, each with a single responsibility
 | **Auth Service** | `3001` | Registration, login, refresh tokens, Google find-or-create |
 | **Content Service** | `3002` | Creating and fetching content owned by a user |
 | **URL Shortener** | `3003` | Short link creation, click tracking, nightly expiry cleanup |
-| **Notification Service** | — | RabbitMQ consumer — sends welcome emails via Resend on `user.created` |
+| **Notification Service** | `3004` | Hybrid — RabbitMQ consumer (`user.created` → welcome email) + HTTP for on-demand sends |
 
 All client traffic enters through the **Gateway only**. All other services are internal.
 
@@ -77,7 +83,7 @@ atlas/
 │   │       ├── links/         # Create, list, delete short links + nightly cleanup cron
 │   │       └── redirect/      # Public slug resolution + click tracking
 │   │
-│   └── notification-service/  # No HTTP port — RabbitMQ microservice
+│   └── notification-service/  # Port 3004 (HTTP) + RabbitMQ consumer
 │       └── src/
 │           ├── notification/  # Consumes user.created, delegates to EmailService
 │           └── email/         # Resend SDK wrapper + welcome email template
@@ -182,7 +188,7 @@ open http://localhost:3000/auth/google?redirect=http://localhost:5173
 
 ## API Reference
 
-All requests go to the Gateway at `http://localhost:3000`. See [`docs/api-guide.md`](./docs/api-guide.md) for full request/response examples.
+All requests go to the Gateway at `http://localhost:3000`. Interactive docs available at **`http://localhost:3000/docs`** (Swagger UI). See [`docs/api-guide.md`](./docs/api-guide.md) for full request/response examples.
 
 ### Authentication
 
@@ -191,6 +197,7 @@ All requests go to the Gateway at `http://localhost:3000`. See [`docs/api-guide.
 | `POST` | `/auth/register` | None | Create account, returns token pair |
 | `POST` | `/auth/login` | None | Login, returns token pair |
 | `POST` | `/auth/refresh` | None | Exchange refresh token for new pair |
+| `POST` | `/auth/logout` | None | Clear auth cookies |
 | `GET` | `/auth/google` | None | Initiate Google OAuth (browser only) — pass `?redirect=<url>` |
 | `GET` | `/auth/google/callback` | None | OAuth callback — sets cookies, redirects to frontend |
 
@@ -208,8 +215,25 @@ All requests go to the Gateway at `http://localhost:3000`. See [`docs/api-guide.
 |---|---|---|---|
 | `POST` | `/links` | Bearer / cookie | Create a short link (30-day expiry) |
 | `GET` | `/links` | Bearer / cookie | List your short links with click counts |
+| `GET` | `/links/:slug/analytics` | Bearer / cookie | Click analytics for a specific link |
+| `PATCH` | `/links/:slug` | Bearer / cookie | Update a short link |
 | `DELETE` | `/links/:slug` | Bearer / cookie | Delete a short link |
 | `GET` | `/s/:slug` | None | Follow a short link (302 redirect) |
+
+### Email Templates
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/templates` | None | List all available email templates |
+| `GET` | `/templates/:id/preview` | None | Render a template with preview data (returns HTML) |
+| `POST` | `/notify/send` | Bearer / cookie | Send an email via a named template |
+
+### Health
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | None | Gateway liveness — uptime + timestamp |
+| `GET` | `/health/ready` | None | Gateway readiness — pings all downstream services |
 
 ### Token behaviour
 
