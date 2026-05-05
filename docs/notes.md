@@ -34,6 +34,7 @@ Svc]    Service]      Service]          Service]
 [Auth Service] --[user.created event]--> [ RabbitMQ ] --> [ Notification Service ]
 [API Gateway]  --[POST /notify/send  ]--> [ Notification Service ] (internal HTTP, x-internal-key)
 [API Gateway]  --[/user-templates    ]--> [ Notification Service ] (CRUD, internal HTTP, x-internal-key)
+[API Gateway]  --[/email-templates   ]--> [ Notification Service ] (email playground CRUD, internal HTTP, x-user-id)
 [API Gateway]  --[GET  /templates    ]--> reads from libs/contracts (no downstream service call)
 ```
 
@@ -155,22 +156,31 @@ All HTTP endpoints are **internal-only**, protected by a shared secret header (`
 
 **User-defined templates** — users can create their own custom HTML email templates and store them in the database. These are managed via `/user-templates` (CRUD, authenticated) and can be referenced like any built-in template when sending email.
 
+**Email Playground** — a visual block-based email template builder. Users compose templates by assembling typed blocks (heading, paragraph, image, button, divider, spacer, hero, logo, footer, social) stored as JSON. Templates support `{{variable}}` substitution. The gateway exposes these under `/email-templates` (JWT-protected); the notification service owns storage and rendering. Unlike `/user-templates` and `/notify/send`, the email-playground proxy does not require `x-internal-key` — it passes only `x-user-id`.
+
 What it does:
 
 - **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup; sends a welcome email when a new user registers.
 - **Handle `POST /notify/send`** — accepts `{ templateId, to[], templateData }`, looks up the template in the built-in registry, sends to all recipients in parallel via Resend.
 - **Manage user templates** — `POST /user-templates`, `GET /user-templates`, `GET /user-templates/:id`, `DELETE /user-templates/:id`; all internal-only, keyed by `x-user-id`; persisted to the `user_templates` database table.
+- **Email Playground CRUD** — `POST /email-templates`, `GET /email-templates`, `GET /email-templates/:id`, `PATCH /email-templates/:id`, `DELETE /email-templates/:id`; persisted to the `email_templates` database table; each update auto-increments a `version` counter.
+- **Render blocks to HTML** — `POST /email-templates/render` accepts `{ blocks, variables }` and returns `{ html }` without authentication; used by the Pulse frontend to show live previews before saving.
+- **Send test email** — `POST /email-templates/send-test` loads a saved template, renders it with optional variables, and sends to a single address via Resend.
 - **Fail gracefully** — Resend errors are caught and logged; the RabbitMQ message is acknowledged so the queue is not blocked.
 
 Key files:
 - `apps/notification-service/src/notification/notification.controller.ts` — `@EventPattern` handler (RMQ) and `POST /notify/send` (HTTP), guarded by `InternalKeyGuard`
 - `apps/notification-service/src/notification/notification.service.ts` — `handleUserCreated` and `sendEmail` logic; uses `TemplateRegistry`
 - `apps/notification-service/src/email/template-registry.ts` — maps template IDs to template instances; throws `NotFoundException` for unknown IDs
-- `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; sends the rendered HTML
+- `apps/notification-service/src/email/email.service.ts` — wraps Resend SDK; `sendMail` (template-based) and `sendRaw` (plain HTML) methods
 - `apps/notification-service/src/email/templates/` — one file per template; each implements `EmailTemplate<T>` with its own typed data shape
 - `apps/notification-service/src/guards/internal-key.guard.ts` — rejects HTTP requests where `x-internal-key` does not match `INTERNAL_NOTIFICATION_KEY`
 - `apps/notification-service/src/user-templates/user-templates.controller.ts` — CRUD for user-defined templates; protected by `InternalKeyGuard`, reads `x-user-id` header for ownership
 - `apps/notification-service/src/user-templates/user-templates.service.ts` — creates, lists, fetches, and deletes `UserTemplate` rows via Prisma
+- `apps/notification-service/src/email-playground/email-playground.controller.ts` — block-based email template CRUD + render + send-test; protected by `x-user-id` presence (no `InternalKeyGuard`)
+- `apps/notification-service/src/email-playground/email-playground.service.ts` — creates/reads/updates/deletes `EmailTemplate` rows; renders blocks to email-safe HTML; sends test emails
+- `apps/notification-service/src/email-playground/renderer/blocks-renderer.ts` — converts blocks JSON to a full email-safe HTML document; supports 10 block types and `{{variable}}` substitution
+- `apps/gateway/src/email-playground/email-playground-proxy.controller.ts` — JWT-protected gateway proxy for `/email-templates`; forwards to notification service with `x-user-id`
 - `apps/notification-service/src/prisma/prisma.service.ts` — Prisma connection for the notification service's own database access
 
 ---
@@ -317,6 +327,20 @@ The `owner_id` column is how the system enforces ownership — you can only read
 
 User-defined templates are completely separate from the built-in system templates in `libs/contracts`. They are stored per-user and can be managed via the `/user-templates` API endpoints.
 
+**`email_templates` table** — owned by the Notification Service (Email Playground)
+| Column | What it stores |
+|---|---|
+| id | A unique ID (UUID) for every template |
+| userId | The ID of the user who created it |
+| name | A human-readable label for the template |
+| description | Optional description of the template's purpose |
+| blocksJson | The ordered list of blocks as a JSON array |
+| version | Auto-incremented integer; increases with each update |
+| createdAt | When the template was created |
+| updatedAt | When the template was last modified |
+
+Email Playground templates store layout and content as structured JSON blocks rather than raw HTML. The `renderBlocksToHtml` function in `blocks-renderer.ts` converts them to an email-safe HTML document at render time. This lets the frontend manipulate individual blocks without parsing HTML.
+
 ---
 
 ## How a Typical Request Flows
@@ -409,6 +433,34 @@ remains valid until its 15-minute expiry. API clients using Bearer tokens should
 discard the token on their end.
 ```
 
+### Using the Email Playground
+
+```
+Saving a template (authenticated):
+1. Client sends:  POST /email-templates  { name, description, blocks: [...] }
+                  Authorization: Bearer <accessToken>
+2. Gateway checks the JWT token, extracts userId
+3. Gateway forwards to Notification Service with header x-user-id: <userId>
+4. Notification Service saves the template to email_templates table
+5. Returns the saved template object (including id, version: 1)
+
+Rendering blocks to HTML (no auth required):
+1. Client sends:  POST /email-templates/render  { blocks: [...], variables: { name: "Alice" } }
+2. Gateway forwards to Notification Service (no x-user-id needed)
+3. Notification Service runs renderBlocksToHtml() — converts blocks to a full HTML document
+   with {{variable}} substitution applied
+4. Returns { html: "<!DOCTYPE html>..." }
+
+Sending a test email (authenticated):
+1. Client sends:  POST /email-templates/send-test  { templateId, to: "alice@example.com", variables: {} }
+                  Authorization: Bearer <accessToken>
+2. Gateway checks JWT, extracts userId, forwards with x-user-id
+3. Notification Service loads the template, verifies ownership
+4. Renders blocks to HTML with supplied variables
+5. Calls EmailService.sendRaw() to send via Resend
+6. Returns { sent: true }
+```
+
 ### Managing a Custom Email Template
 
 ```
@@ -483,6 +535,13 @@ A management interface for email templates and sending. Deployed at `pulse.rutur
 - Browse the built-in system templates (`GET /templates`) and preview their rendered HTML
 - Manage user-defined custom templates (`/user-templates` CRUD)
 - Send emails directly via the gateway's `POST /notify/send` endpoint
+- **Email Playground** — a full drag-and-drop visual email editor at `/dashboard/email-playground`
+  - Block palette (left sidebar): drag 10 block types (heading, paragraph, image, button, divider, spacer, hero, logo, footer, social) onto the canvas
+  - Canvas (center): live editable layout; reorder blocks by drag-and-drop
+  - Properties panel (right sidebar): edit all properties of the selected block
+  - Preview modal: renders the template to HTML via `POST /email-templates/render` (no auth) and shows the result in an iframe
+  - Send Test modal: sends the rendered template to a single email address via `POST /email-templates/send-test`
+  - Template list: browse and load any previously saved template
 
 Both frontends use **Tailwind CSS** and **TypeScript**. They share no code with each other or with the backend.
 

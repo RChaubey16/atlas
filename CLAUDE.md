@@ -4,7 +4,7 @@
 
 **Atlas** is a NestJS microservices backend portfolio project demonstrating service boundaries, API Gateway pattern, event contracts, Google OAuth, cookie-based auth, and clean NestJS modular design.
 
-## Current State (as of 2026-05-03)
+## Current State (as of 2026-05-05)
 
 All features are **complete and merged to `main`**.
 
@@ -28,6 +28,7 @@ All features are **complete and merged to `main`**.
 - Rate limiting: `ThrottlerModule` global guard at 100 req/min, keyed by `userId` (authed) or IP (anon)
 - Structured HTTP logging: `HttpLoggingInterceptor` on gateway logs `METHOD URL STATUS +Xms` for every request
 - Gateway config validated at startup with Joi schema
+- Email Playground — visual block-based email template builder at `/email-templates`; 10 block types (heading, paragraph, image, button, divider, spacer, hero, logo, footer, social); `{{variable}}` substitution in text; renders to email-safe HTML; full CRUD + render + send-test; stored in `email_templates` table; proxied via gateway with JWT + `x-user-id`
 
 ## Architecture
 
@@ -57,7 +58,7 @@ libs/
  └── contracts/            # Shared event types, commands, and template definitions (@app/contracts path alias)
 
 prisma/
- └── schema.prisma         # User, Content, ShortLink, ClickEvent models (no url= in datasource — Prisma v7)
+ └── schema.prisma         # User, Content, ShortLink, ClickEvent, UserTemplate, EmailTemplate models (no url= in datasource — Prisma v7)
 
 docs/
  ├── notes.md              # Plain-English project overview
@@ -114,7 +115,7 @@ plan/
 |---|---|
 | `nest-cli.json` | Monorepo config — all apps and libs registered here |
 | `tsconfig.json` | Root TS config — includes `@app/contracts` path alias |
-| `prisma/schema.prisma` | DB schema — User, Content, ShortLink, ClickEvent models |
+| `prisma/schema.prisma` | DB schema — User, Content, ShortLink, ClickEvent, UserTemplate, EmailTemplate models |
 | `docker-compose.yml` | All 7 services wired together |
 | `Dockerfile` | Dev image — includes `prisma generate` |
 | `Dockerfile.prod` | Multi-stage production image |
@@ -136,6 +137,11 @@ plan/
 | `apps/gateway/src/templates/templates.controller.ts` | Serves `GET /templates` and `GET /templates/:id/preview` |
 | `libs/contracts/src/templates/registry.ts` | TEMPLATES map — single source of truth for all email templates |
 | `libs/contracts/src/commands/send-email.command.ts` | `SendEmailCommand` — used for on-demand email via gateway |
+| `apps/gateway/src/email-playground/email-playground-proxy.controller.ts` | CRUD + render + send-test at `/email-templates` — JWT-protected, proxies to notification service |
+| `apps/gateway/src/email-playground/email-playground-proxy.service.ts` | Forwards email-playground calls to notification service with `x-user-id` header (no `x-internal-key`) |
+| `apps/notification-service/src/email-playground/email-playground.controller.ts` | Handles `/email-templates` CRUD, render, and send-test; guards via `x-user-id` presence check |
+| `apps/notification-service/src/email-playground/email-playground.service.ts` | Creates/reads/updates/deletes email templates; renders blocks to HTML; sends test emails via Resend |
+| `apps/notification-service/src/email-playground/renderer/blocks-renderer.ts` | Converts blocks JSON to email-safe HTML; supports 10 block types and `{{variable}}` substitution |
 | `docs/notes.md` | Plain-English project overview |
 | `docs/nest-notes.md` | NestJS concepts explained with code examples |
 | `docs/api-guide.md` | Full API reference (Postman + browser workflows) |
@@ -199,6 +205,13 @@ Docker Compose overrides service URLs and `DATABASE_URL` to use container names 
 | GET | `/templates` | No | List all available email templates |
 | GET | `/templates/:id/preview` | No | Render a template with preview data (returns HTML) |
 | POST | `/notify/send` | Cookie / Bearer | Send an email via named template (proxied to notification service) |
+| POST | `/email-templates` | Cookie / Bearer | Create a block-based email playground template |
+| GET | `/email-templates` | Cookie / Bearer | List own email playground templates |
+| GET | `/email-templates/:id` | Cookie / Bearer | Get one email playground template |
+| PATCH | `/email-templates/:id` | Cookie / Bearer | Update an email playground template |
+| DELETE | `/email-templates/:id` | Cookie / Bearer | Delete an email playground template (204) |
+| POST | `/email-templates/render` | No | Render blocks JSON to email-safe HTML |
+| POST | `/email-templates/send-test` | Cookie / Bearer | Send a test email using a saved template |
 | GET | `/health` | No | Gateway liveness — uptime + timestamp |
 | GET | `/health/ready` | No | Gateway readiness — pings auth, content, url-shortener |
 

@@ -1286,7 +1286,7 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Module | `@Module()` | Every `*.module.ts` file |
 | Controller | `@Controller()` | Every `*.controller.ts` file |
 | Service / Provider | `@Injectable()` | Every `*.service.ts`, strategies, PrismaService |
-| Route handling | `@Get()`, `@Post()`, `@Delete()` | All HTTP controllers |
+| Route handling | `@Get()`, `@Post()`, `@Patch()`, `@Delete()` | All HTTP controllers |
 | Request data | `@Body()`, `@Param()`, `@Query()`, `@Headers()`, `@Request()` | All HTTP controllers |
 | Dependency Injection | Constructor parameters | Everywhere |
 | Config + env validation | `ConfigModule.forRoot()` + Joi schema + `ConfigService` | Gateway `app.module.ts`; `ConfigService` injected into `JwtStrategy` and proxy services |
@@ -1314,3 +1314,4 @@ Here is how a `POST /auth/register` request flows through all these NestJS conce
 | Rate limiting | `ThrottlerModule` + `APP_GUARD` + `@Throttle()` | `UserThrottlerGuard` + auth and content controllers in gateway |
 | Health checks | `@nestjs/terminus` + `HealthCheckService` + `HttpHealthIndicator` | Gateway `health.controller.ts` (liveness + readiness); `PrismaHealthIndicator` in auth, content, url-shortener |
 | Multi-module hybrid service | `NestFactory.create()` + `connectMicroservice()` + own Prisma | Notification service: RabbitMQ consumer, HTTP server, and DB-backed user-templates CRUD in one process |
+| Pure-function renderer in a service | Plain `@Injectable()` method with no DB or HTTP side-effects | `EmailPlaygroundService.render()` calls `renderBlocksToHtml()` synchronously; exposed as `POST /email-templates/render` with no auth guard |

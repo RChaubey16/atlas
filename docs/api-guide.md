@@ -985,6 +985,254 @@ Deletes one of the authenticated user's custom templates. Returns no body on suc
 
 ---
 
+## Email Playground Endpoints
+
+Email Playground endpoints manage block-based email templates — layouts assembled from typed blocks (heading, paragraph, image, button, divider, spacer, hero, logo, footer, social) stored as JSON. Text blocks support `{{variable}}` substitution.
+
+Most endpoints **require** authentication. The `render` endpoint is public and is used to preview a layout without saving.
+
+- **Browser clients** — cookies sent automatically.
+- **Postman / API clients** — use `Authorization: Bearer <accessToken>`.
+
+---
+
+### 24. Create an Email Playground Template
+
+Stores a new block-based template for the authenticated user.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/email-templates` |
+| **Auth** | Cookie or Bearer Token |
+
+**Body (raw JSON):**
+```json
+{
+  "name": "My Newsletter",
+  "description": "Monthly product update",
+  "blocks": [
+    { "id": "b1", "type": "hero", "props": { "title": "Hello {{name}}!", "subtitle": "Welcome to this month's update.", "backgroundColor": "#6366f1", "textColor": "#ffffff" } },
+    { "id": "b2", "type": "paragraph", "props": { "text": "Here is what's new this month.", "align": "left" } }
+  ]
+}
+```
+
+**Fields:**
+- `name` — required, non-empty string. Label shown in the template list.
+- `description` — optional string. Short description of the template's purpose.
+- `blocks` — required array of block objects. Each block has `id` (unique string), `type` (one of the 10 block types), and `props` (block-specific properties).
+
+**Success Response — `201 Created`:**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userId": "b1c2d3e4-f5a6-7890-abcd-123456789abc",
+  "name": "My Newsletter",
+  "description": "Monthly product update",
+  "blocksJson": [...],
+  "version": 1,
+  "createdAt": "2026-05-05T10:00:00.000Z",
+  "updatedAt": "2026-05-05T10:00:00.000Z"
+}
+```
+
+**Error Responses:**
+
+`400 Bad Request` — validation failed (missing name, malformed blocks, etc.).
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 25. List My Email Playground Templates
+
+Returns a summary list of all email playground templates owned by the authenticated user, newest first. Does not include `blocksJson` — use `GET /email-templates/:id` to load the full block data.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/email-templates` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Success Response — `200 OK`:**
+```json
+[
+  {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "My Newsletter",
+    "description": "Monthly product update",
+    "version": 3,
+    "createdAt": "2026-05-05T10:00:00.000Z",
+    "updatedAt": "2026-05-05T12:00:00.000Z"
+  }
+]
+```
+
+Returns `[]` if the user has no templates.
+
+---
+
+### 26. Get One Email Playground Template
+
+Returns a single email playground template including its full `blocksJson`.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `http://localhost:3000/email-templates/:id` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Example URL:** `http://localhost:3000/email-templates/a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+
+**Success Response — `200 OK`:** full template object including `blocksJson`.
+
+**Error Responses:**
+
+`404 Not Found` — no template with that ID, or it belongs to a different user.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 27. Update an Email Playground Template
+
+Updates one or more fields of a saved template. Each update increments the `version` counter. At least one field must be provided.
+
+| | |
+|---|---|
+| **Method** | `PATCH` |
+| **URL** | `http://localhost:3000/email-templates/:id` |
+| **Auth** | Cookie or Bearer Token |
+
+**Body (raw JSON — all fields optional, at least one required):**
+```json
+{
+  "name": "Q2 Newsletter",
+  "description": "Updated description",
+  "blocks": [...]
+}
+```
+
+**Success Response — `200 OK`:** updated template object with incremented `version`.
+
+**Error Responses:**
+
+`403 Forbidden` — template belongs to a different user.
+
+`404 Not Found` — no template with that ID.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 28. Delete an Email Playground Template
+
+Deletes one of the authenticated user's email playground templates.
+
+| | |
+|---|---|
+| **Method** | `DELETE` |
+| **URL** | `http://localhost:3000/email-templates/:id` |
+| **Auth** | Cookie or Bearer Token |
+| **Body** | None |
+
+**Success Response — `204 No Content`** (empty body)
+
+**Error Responses:**
+
+`403 Forbidden` — template belongs to a different user.
+
+`404 Not Found` — no template with that ID.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
+### 29. Render Blocks to HTML
+
+Converts a blocks JSON array to a full email-safe HTML document. No authentication required. Used by the Pulse frontend to show live previews. Supports `{{variable}}` substitution — pass a `variables` map to inject values.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/email-templates/render` |
+| **Auth** | None |
+
+**Body (raw JSON):**
+```json
+{
+  "blocks": [
+    { "id": "b1", "type": "heading", "props": { "text": "Hello {{name}}!", "level": 1 } },
+    { "id": "b2", "type": "paragraph", "props": { "text": "Your order {{orderId}} is confirmed." } }
+  ],
+  "variables": {
+    "name": "Alice",
+    "orderId": "ORD-12345"
+  }
+}
+```
+
+**Success Response — `200 OK`:**
+```json
+{
+  "html": "<!DOCTYPE html><html lang=\"en\">...</html>"
+}
+```
+
+The returned HTML is a complete, self-contained email document ready to be displayed in an iframe or sent via Resend.
+
+---
+
+### 30. Send a Test Email
+
+Loads a saved template by ID, renders its blocks with optional variables, and sends the result to a single email address via Resend. The template must belong to the authenticated user.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `http://localhost:3000/email-templates/send-test` |
+| **Auth** | Cookie or Bearer Token |
+
+**Body (raw JSON):**
+```json
+{
+  "templateId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "to": "alice@example.com",
+  "variables": {
+    "name": "Alice"
+  }
+}
+```
+
+**Fields:**
+- `templateId` — required, the ID of a saved email playground template owned by the caller.
+- `to` — required, a single valid email address.
+- `variables` — optional key-value map for `{{variable}}` substitution in the template blocks.
+
+**Success Response — `200 OK`:**
+```json
+{
+  "sent": true
+}
+```
+
+The subject line is prefixed with `[Test]` so recipients can identify it as a test send.
+
+**Error Responses:**
+
+`403 Forbidden` — template belongs to a different user.
+
+`404 Not Found` — no template with that ID.
+
+`500 Internal Server Error` — Resend delivery failed.
+
+`401 Unauthorized` — missing or invalid token.
+
+---
+
 ## Template Endpoints
 
 Template endpoints are **public** — no authentication required. Use them to display the available email templates and preview their rendered HTML.
@@ -1198,6 +1446,27 @@ Body: { "name": "My Template", "subject": "Hello!", "html": "<h1>Hi there</h1>" 
 ```
 Returns the saved template with its `id`. Use `GET /user-templates` to list all your templates, `GET /user-templates/:id` to fetch one, and `DELETE /user-templates/:id` to remove it.
 
+**Step 12c — Use the Email Playground (block-based builder)**
+```
+POST /email-templates
+Authorization: Bearer <accessToken>
+Body: { "name": "My Layout", "blocks": [{ "id": "b1", "type": "hero", "props": { "title": "Hello!" } }] }
+```
+Returns the saved template with its `id`. Use `GET /email-templates/:id` to fetch the full block data, `PATCH /email-templates/:id` to update it, and `DELETE /email-templates/:id` to remove it.
+
+To preview without saving:
+```
+POST /email-templates/render
+Body: { "blocks": [...], "variables": { "name": "Alice" } }
+```
+
+To send a test email after saving:
+```
+POST /email-templates/send-test
+Authorization: Bearer <accessToken>
+Body: { "templateId": "<id>", "to": "alice@example.com", "variables": { "name": "Alice" } }
+```
+
 **Step 13 — Log out**
 ```
 POST /auth/logout
@@ -1259,3 +1528,10 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 | `/user-templates/:id` | DELETE | Yes | Delete a custom template (204 No Content) |
 | `/templates` | GET | No | List all built-in email templates with field metadata |
 | `/templates/:id/preview` | GET | No | Render a built-in template with sample data, returns `{ id, subject, html }` |
+| `/email-templates` | POST | Yes | Create a block-based email playground template |
+| `/email-templates` | GET | Yes | List your email playground templates (summary — no `blocksJson`) |
+| `/email-templates/:id` | GET | Yes | Get one email playground template with full `blocksJson` |
+| `/email-templates/:id` | PATCH | Yes | Update name, description, or blocks; auto-increments `version` |
+| `/email-templates/:id` | DELETE | Yes | Delete an email playground template (204 No Content) |
+| `/email-templates/render` | POST | No | Render blocks JSON to email-safe HTML with optional `{{variable}}` substitution |
+| `/email-templates/send-test` | POST | Yes | Send a test email for a saved template to a single address |
