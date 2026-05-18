@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import * as Joi from 'joi';
 
-import { AppController } from './app.controller';
 import { LinksModule } from './links/links.module';
 import { RedirectModule } from './redirect/redirect.module';
 import { HealthModule } from './health/health.module';
@@ -22,6 +21,5 @@ import { HealthModule } from './health/health.module';
     RedirectModule,
     HealthModule,
   ],
-  controllers: [AppController],
 })
 export class AppModule {}

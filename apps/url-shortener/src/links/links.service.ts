@@ -198,12 +198,7 @@ export class LinksService {
   }
 
   private async validateNoSsrf(url: string): Promise<void> {
-    let hostname: string;
-    try {
-      hostname = new URL(url).hostname;
-    } catch {
-      return;
-    }
+    const { hostname } = new URL(url);
 
     // Strip brackets from IPv6 literals in URLs (e.g. [::1])
     const bare =
@@ -237,6 +232,10 @@ export class LinksService {
     if (ip === '::1' || ip === '::') return true;
     if (/^fe80:/i.test(ip)) return true;
     if (/^f[cd]/i.test(ip)) return true; // fc00::/7
+    if (/^::ffff:/i.test(ip)) {
+      // IPv4-mapped IPv6 — check the embedded IPv4 address
+      return this.isPrivateIp(ip.slice(7));
+    }
 
     const parts = ip.split('.').map(Number);
     if (parts.length !== 4) return false;
