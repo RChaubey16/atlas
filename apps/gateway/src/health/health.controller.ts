@@ -48,6 +48,11 @@ export class HealthController {
           'url-shortener',
           `${this.config.get<string>('URL_SHORTENER_URL')}/health`,
         ),
+      () =>
+        this.http.pingCheck(
+          'notification-service',
+          `${this.config.get<string>('NOTIFICATION_SERVICE_URL')}/health`,
+        ),
     ]);
   }
 }
