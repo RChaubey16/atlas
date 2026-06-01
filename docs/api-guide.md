@@ -78,7 +78,7 @@ Returns the gateway's uptime and current timestamp. Does not check any downstrea
 
 ### Gateway Readiness
 
-Pings the Auth Service, Content Service, and URL Shortener Service. Returns a detailed status object for each downstream dependency. Use this to confirm the entire stack is reachable before running tests.
+Pings the Auth Service, Content Service, URL Shortener Service, and Notification Service. Returns a detailed status object for each downstream dependency. Use this to confirm the entire stack is reachable before running tests.
 
 | | |
 |---|---|
@@ -93,13 +93,15 @@ Pings the Auth Service, Content Service, and URL Shortener Service. Returns a de
   "info": {
     "auth-service": { "status": "up" },
     "content-service": { "status": "up" },
-    "url-shortener": { "status": "up" }
+    "url-shortener": { "status": "up" },
+    "notification-service": { "status": "up" }
   },
   "error": {},
   "details": {
     "auth-service": { "status": "up" },
     "content-service": { "status": "up" },
-    "url-shortener": { "status": "up" }
+    "url-shortener": { "status": "up" },
+    "notification-service": { "status": "up" }
   }
 }
 ```
@@ -1501,8 +1503,9 @@ The `credentials: 'include'` option is required for cross-origin cookie sending.
 
 | Endpoint | Method | Auth Required | Purpose |
 |---|---|---|---|
+| `/` | GET | No | Gateway welcome — service name, version, and link to docs |
 | `/health` | GET | No | Gateway liveness — uptime and timestamp |
-| `/health/ready` | GET | No | Gateway readiness — pings all downstream services |
+| `/health/ready` | GET | No | Gateway readiness — pings all four downstream services |
 | `/docs` | GET | No | Swagger / OpenAPI interactive explorer |
 | `/dummy/blogs` | GET | No | 5 hardcoded blogs for testing |
 | `/dummy/users` | GET | No | 5 hardcoded fake users for testing |

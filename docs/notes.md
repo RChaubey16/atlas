@@ -64,7 +64,7 @@ Every API call from a client (mobile app, browser, etc.) hits the Gateway first.
 - **Logs all HTTP traffic** — a global `HttpLoggingInterceptor` logs every inbound request as `METHOD /path STATUS +Xms`, giving visibility into latency and error rates without adding any per-controller code.
 - **Rate-limits sensitive routes** — a global `ThrottlerGuard` enforces a 100 req/60 s ceiling on all routes. Login and register are tightened to 5 req/60 s per IP; content and link creation are limited to 20 req/60 s per authenticated user ID. Callers that exceed the limit receive `429 Too Many Requests`.
 - **Owns the Google OAuth flow** — the Gateway holds the `GoogleStrategy` (Passport) and the Google client credentials. It initiates the redirect to Google and handles the callback. After Google confirms identity, it sets `access_token` and `refresh_token` as `httpOnly` cookies (browser clients) and redirects to the configured frontend URL. Token pair JSON is also available for API clients.
-- **Health and readiness** — `GET /health` returns a liveness response (uptime, timestamp) with no external checks. `GET /health/ready` uses `@nestjs/terminus` to ping all three downstream services and returns a detailed status object.
+- **Health and readiness** — `GET /health` returns a liveness response (uptime, timestamp) with no external checks. `GET /health/ready` uses `@nestjs/terminus` to ping all four downstream services (auth, content, url-shortener, notification) and returns a detailed status object.
 - **Swagger UI** — `GET /docs` serves an interactive OpenAPI explorer covering every route, request body shape, and expected response — no separate API reference needed for quick exploration.
 
 The Gateway does not have its own database. It is purely a traffic director.
@@ -160,6 +160,7 @@ All HTTP endpoints are **internal-only**, protected by a shared secret header (`
 
 What it does:
 
+- **Health check** — `GET /health` returns `{ status: 'ok' }`; pinged by the Gateway's `GET /health/ready` readiness probe.
 - **Listen for `user.created` events** — connects to the `notification_queue` on RabbitMQ at startup; sends a welcome email when a new user registers.
 - **Handle `POST /notify/send`** — accepts `{ templateId, to[], templateData }`, looks up the template in the built-in registry, sends to all recipients in parallel via Resend.
 - **Manage user templates** — `POST /user-templates`, `GET /user-templates`, `GET /user-templates/:id`, `DELETE /user-templates/:id`; all internal-only, keyed by `x-user-id`; persisted to the `user_templates` database table.
