@@ -254,8 +254,16 @@ describe('renderBlocksToHtml', () => {
           type: 'social',
           props: {
             links: [
-              { platform: 'Twitter', url: 'https://twitter.com/x', label: 'Twitter' },
-              { platform: 'GitHub', url: 'https://github.com/y', label: 'GitHub' },
+              {
+                platform: 'Twitter',
+                url: 'https://twitter.com/x',
+                label: 'Twitter',
+              },
+              {
+                platform: 'GitHub',
+                url: 'https://github.com/y',
+                label: 'GitHub',
+              },
             ],
           },
         },

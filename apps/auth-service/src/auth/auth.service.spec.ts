@@ -124,11 +124,15 @@ describe('AuthService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue({
         ...createdUser,
         // real bcrypt hash of 'correct-password'
-        passwordHash: '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+        passwordHash:
+          '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
       });
 
       await expect(
-        service.login({ email: 'test@example.com', password: 'wrong-password' }),
+        service.login({
+          email: 'test@example.com',
+          password: 'wrong-password',
+        }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -180,8 +184,7 @@ describe('AuthService', () => {
     };
 
     it('returns tokens for an existing user found by googleId', async () => {
-      mockPrismaService.user.findUnique
-        .mockResolvedValueOnce(createdUser); // found by googleId
+      mockPrismaService.user.findUnique.mockResolvedValueOnce(createdUser); // found by googleId
 
       const result = await service.findOrCreateGoogleUser(googleDto);
 
@@ -192,8 +195,8 @@ describe('AuthService', () => {
     it('links googleId to existing email/password account and returns tokens', async () => {
       const existingUser = { ...createdUser, googleId: null };
       mockPrismaService.user.findUnique
-        .mockResolvedValueOnce(null)           // not found by googleId
-        .mockResolvedValueOnce(existingUser);  // found by email
+        .mockResolvedValueOnce(null) // not found by googleId
+        .mockResolvedValueOnce(existingUser); // found by email
 
       mockPrismaService.user.update.mockResolvedValue({
         ...existingUser,

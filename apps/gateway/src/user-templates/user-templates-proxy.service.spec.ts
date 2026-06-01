@@ -105,7 +105,9 @@ describe('UserTemplatesProxyService', () => {
       err.response = { status: 404, data: { message: 'Not found' } } as never;
       http.get.mockReturnValue(throwError(() => err));
 
-      await expect(service.findAll('user-1')).rejects.toBeInstanceOf(HttpException);
+      await expect(service.findAll('user-1')).rejects.toBeInstanceOf(
+        HttpException,
+      );
     });
   });
 });

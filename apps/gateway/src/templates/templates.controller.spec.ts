@@ -20,8 +20,12 @@ jest.mock('@app/contracts', () => ({
       description: 'Reset password email.',
       subject: 'Reset your password',
       fields: [{ name: 'resetLink', required: true }],
-      previewData: { email: 'preview@example.com', resetLink: 'https://example.com/reset' },
-      html: (data: Record<string, string>) => `<a href="${data.resetLink}">Reset</a>`,
+      previewData: {
+        email: 'preview@example.com',
+        resetLink: 'https://example.com/reset',
+      },
+      html: (data: Record<string, string>) =>
+        `<a href="${data.resetLink}">Reset</a>`,
     },
   },
 }));
@@ -66,7 +70,9 @@ describe('TemplatesController', () => {
     });
 
     it('throws NotFoundException for an unknown template id', () => {
-      expect(() => controller.preview('nonexistent')).toThrow(NotFoundException);
+      expect(() => controller.preview('nonexistent')).toThrow(
+        NotFoundException,
+      );
     });
   });
 });

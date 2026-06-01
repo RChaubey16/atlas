@@ -125,7 +125,10 @@ describe('EmailPlaygroundService', () => {
 
       expect(mockPrisma.emailTemplate.update).toHaveBeenCalledWith({
         where: { id: 'tpl-1' },
-        data: expect.objectContaining({ name: 'New Name', version: { increment: 1 } }),
+        data: expect.objectContaining({
+          name: 'New Name',
+          version: { increment: 1 },
+        }),
       });
       expect(result.version).toBe(2);
     });

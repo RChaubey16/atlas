@@ -46,7 +46,11 @@ describe('ContentService', () => {
       );
 
       expect(mockPrisma.content.create).toHaveBeenCalledWith({
-        data: { title: 'Hello World', body: 'Some body text.', ownerId: 'user-1' },
+        data: {
+          title: 'Hello World',
+          body: 'Some body text.',
+          ownerId: 'user-1',
+        },
       });
       expect(result).toEqual(mockContent);
     });

@@ -43,7 +43,11 @@ describe('UserTemplatesService', () => {
     it('calls prisma.create with userId and dto fields', async () => {
       mockPrisma.userTemplate.create.mockResolvedValue(mockTemplate);
 
-      const dto = { name: 'Promo', subject: 'Special offer', html: '<h1>Hi</h1>' };
+      const dto = {
+        name: 'Promo',
+        subject: 'Special offer',
+        html: '<h1>Hi</h1>',
+      };
       const result = await service.create('user-1', dto);
 
       expect(mockPrisma.userTemplate.create).toHaveBeenCalledWith({

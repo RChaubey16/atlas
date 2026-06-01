@@ -15,7 +15,12 @@ const okResponse = (data: unknown): AxiosResponse => ({
 
 describe('EmailPlaygroundProxyService', () => {
   let service: EmailPlaygroundProxyService;
-  let http: { get: jest.Mock; post: jest.Mock; patch: jest.Mock; delete: jest.Mock };
+  let http: {
+    get: jest.Mock;
+    post: jest.Mock;
+    patch: jest.Mock;
+    delete: jest.Mock;
+  };
 
   beforeEach(async () => {
     http = {
@@ -35,7 +40,9 @@ describe('EmailPlaygroundProxyService', () => {
       ],
     }).compile();
 
-    service = module.get<EmailPlaygroundProxyService>(EmailPlaygroundProxyService);
+    service = module.get<EmailPlaygroundProxyService>(
+      EmailPlaygroundProxyService,
+    );
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -127,7 +134,11 @@ describe('EmailPlaygroundProxyService', () => {
 
   describe('sendTest', () => {
     it('POSTs to /email-templates/send-test with x-user-id', async () => {
-      const body = { templateId: 'tpl-1', to: 'alice@example.com', variables: {} };
+      const body = {
+        templateId: 'tpl-1',
+        to: 'alice@example.com',
+        variables: {},
+      };
       http.post.mockReturnValue(of(okResponse({ sent: true })));
 
       await service.sendTest(body, 'user-1');
@@ -146,7 +157,9 @@ describe('EmailPlaygroundProxyService', () => {
       err.response = { status: 403, data: { message: 'Forbidden' } } as never;
       http.get.mockReturnValue(throwError(() => err));
 
-      await expect(service.findAll('user-1')).rejects.toBeInstanceOf(HttpException);
+      await expect(service.findAll('user-1')).rejects.toBeInstanceOf(
+        HttpException,
+      );
     });
 
     it('re-throws non-Axios errors as-is', async () => {
