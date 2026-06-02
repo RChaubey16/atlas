@@ -7,7 +7,7 @@ import { AuthProxyController } from './auth-proxy.controller';
 import { AuthProxyService } from './auth-proxy.service';
 
 @Module({
-  imports: [PassportModule, HttpModule],
+  imports: [PassportModule, HttpModule.register({ timeout: 8000 })],
   controllers: [AuthProxyController],
   providers: [JwtStrategy, GoogleStrategy, AuthProxyService],
 })

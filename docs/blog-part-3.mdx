@@ -1,0 +1,178 @@
+---
+title: "Building Atlas, Part 3: Google OAuth, URL Shortener, and Cookie Auth"
+date: ""
+description: "How I wired Google OAuth 2.0 into the gateway, built a URL shortener with click tracking, switched to httpOnly cookie auth, and set up CI/CD — the phase that made Atlas feel like a real product."
+tags: ["Atlas", "NestJS", "OAuth", "URL Shortener", "CI/CD"]
+---
+
+With auth and event-driven notifications in place, Phase 3 was about expanding what Atlas could actually do. Three things came together: Google OAuth, a URL shortener service, and switching to cookie-based auth. Each one introduced a different kind of complexity worth explaining.
+
+## Google OAuth 2.0
+
+Adding Google sign-in meant wiring Passport's `passport-google-oauth20` strategy into the gateway. The flow: browser hits `GET /auth/google`, gets redirected to Google's consent screen, Google redirects back to `/auth/google/callback`, and the gateway exchanges the profile for a token pair.
+
+```ts
+// google.strategy.ts
+@Injectable()
+export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
+  constructor(config: ConfigService) {
+    super({
+      clientID: config.getOrThrow('GOOGLE_CLIENT_ID'),
+      clientSecret: config.getOrThrow('GOOGLE_CLIENT_SECRET'),
+      callbackURL: config.getOrThrow('GOOGLE_CALLBACK_URL'),
+      scope: ['email', 'profile'],
+    });
+  }
+
+  validate(accessToken: string, refreshToken: string, profile: Profile) {
+    return {
+      googleId: profile.id,
+      email: profile.emails[0].value,
+    };
+  }
+}
+```
+
+Two naming gotchas worth knowing. First: the second argument to `PassportStrategy(Strategy, 'google')` is the strategy name that `AuthGuard('google')` looks up. Without it, the strategy registers under a default name and the guard fails silently. Second: `import { Strategy } from 'passport-google-oauth20'` — not from `@nestjs/passport`.
+
+## The `state` parameter for post-login redirects
+
+If a user lands on a protected page, gets sent to login, and then completes OAuth, they should end up back where they started — not on some hardcoded homepage. Google round-trips the `state` parameter unchanged through the entire OAuth flow, so I used it to carry the redirect URL:
+
+```ts
+// google-auth.guard.ts
+getAuthenticateOptions(req: Request) {
+  return {
+    state: (req.query.redirect as string) ?? undefined,
+  };
+}
+```
+
+After the callback, the gateway reads `req.query.state` and redirects there. If no state was provided, it falls back to `FRONTEND_URL`. This meant the auth flow could be initiated from any page without losing context.
+
+## `findOrCreateGoogleUser` — three cases
+
+The auth-service `findOrCreateGoogleUser` method has to handle three distinct scenarios:
+
+```ts
+async findOrCreateGoogleUser(dto: GoogleProfileDto): Promise<TokenPair> {
+  // Case 1: returning Google user
+  let user = await this.prisma.user.findUnique({ where: { googleId: dto.googleId } });
+  if (user) return this.issueTokens(user.id, user.email);
+
+  // Case 2: existing email/password account — link the Google identity
+  user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+  if (user) {
+    user = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { googleId: dto.googleId },
+    });
+    return this.issueTokens(user.id, user.email);
+  }
+
+  // Case 3: brand new user — create account and emit user.created
+  user = await this.prisma.user.create({
+    data: { email: dto.email, googleId: dto.googleId },
+  });
+  this.notificationClient.emit(USER_CREATED_EVENT, { userId: user.id, email: user.email, createdAt: user.createdAt });
+  return this.issueTokens(user.id, user.email);
+}
+```
+
+Case 2 is the critical one: if someone registered with email/password and then tries Google with the same address, they shouldn't end up with two separate accounts. Linking the `googleId` onto the existing record handles this transparently.
+
+## Switching to httpOnly cookies
+
+Up to this point tokens were returned as JSON and API clients sent them as `Authorization: Bearer` headers. Google OAuth broke that model — after the callback, you're doing a browser redirect and can't inject a header.
+
+The solution: deliver tokens as `httpOnly` cookies after the OAuth callback.
+
+```ts
+res.cookie('access_token', tokens.accessToken, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 15 * 60 * 1000,
+});
+res.cookie('refresh_token', tokens.refreshToken, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+```
+
+The `JwtStrategy` was updated to try the cookie first, then fall back to the Bearer header:
+
+```ts
+super({
+  jwtFromRequest: ExtractJwt.fromExtractors([
+    (req) => req?.cookies?.access_token ?? null,
+    ExtractJwt.fromAuthHeaderAsBearerToken(),
+  ]),
+});
+```
+
+Browser clients use cookies automatically; API clients use the `Authorization` header. Both work through the same guard. No changes to any controller.
+
+One dependency: CORS must be configured with `credentials: true` for browsers to send cookies cross-origin. Every allowed origin must be explicitly listed in `ALLOWED_ORIGINS` — a wildcard won't work with credentials.
+
+The `cookie-parser` import also has a quirk under `"module": "commonjs"`:
+
+```ts
+import cookieParser = require('cookie-parser'); // ✓
+import * as cookieParser from 'cookie-parser';  // ✗ TS2349 — not callable
+```
+
+## URL shortener
+
+The URL shortener was the most self-contained new service: create a short link, resolve it to a redirect, list your links with click counts, delete them. A new service (`url-shortener`, port 3003) with its own Prisma models.
+
+Slug generation uses `cuid()` — short, URL-safe, and collision-resistant without needing a sequence counter. Links get a 30-day expiry by default:
+
+```ts
+async resolve(slug: string): Promise<string> {
+  const link = await this.prisma.shortLink.findUnique({ where: { slug } });
+  if (!link) throw new NotFoundException();
+  if (link.expiresAt && link.expiresAt < new Date()) {
+    throw new GoneException('Link has expired');
+  }
+  await this.prisma.clickEvent.create({ data: { shortLinkId: link.id } });
+  return link.targetUrl;
+}
+```
+
+The redirect controller is deliberately outside the JWT guard — public short links need to resolve in a browser without a token:
+
+```ts
+@Get(':slug')
+async redirect(@Param('slug') slug: string, @Res() res: Response) {
+  const url = await this.redirectService.resolve(slug);
+  return res.redirect(302, url);
+}
+```
+
+Click counts come from counting `ClickEvent` rows, which made aggregating them on the list endpoint a simple Prisma `_count` include.
+
+## CI/CD via GitHub Actions
+
+I added a GitHub Actions workflow that runs on every push: install, lint, build all apps. The Atlas-specific detail is that `prisma generate` must run before the TypeScript build — the Prisma client is generated code that TypeScript needs to compile against, and it won't be present in CI's clean environment.
+
+```yaml
+- name: Generate Prisma client
+  run: npx prisma generate
+
+- name: Build
+  run: pnpm run build:gateway && pnpm run build:auth && ...
+```
+
+## What Phase 3 delivered
+
+- Google OAuth 2.0 with post-login redirect via `state` parameter
+- Account linking for users who have both email/password and Google
+- `httpOnly` cookie auth for browsers, Bearer header for API clients
+- URL shortener with click tracking, 30-day expiry, and nightly cleanup cron
+- CORS configured with `credentials: true` and origin allowlist
+- GitHub Actions CI running lint and build on every push
+
+Phase 4 would be the hardening phase: rate limiting, structured logging, health checks, config validation, and the final feature — the email playground.

@@ -1,0 +1,137 @@
+---
+title: "Building Atlas, Part 2: RabbitMQ, Event-Driven Notifications, and the Hybrid Service"
+date: ""
+description: "How I introduced async communication between services using RabbitMQ, built a notification service that consumes events and sends email, and solved the problem of needing both event consumption and HTTP in one process."
+tags: ["Atlas", "NestJS", "RabbitMQ", "Microservices", "Event-Driven"]
+---
+
+Phase 1 gave Atlas a working foundation: auth, content, and a gateway that proxied between them. Everything was synchronous — one service called another over HTTP and waited for a response. Phase 2 was about introducing the first genuinely async behaviour: a notification service that reacts to events without being explicitly called.
+
+## The problem with synchronous email
+
+The obvious first instinct is to send a welcome email inside `register()`:
+
+```ts
+async register(dto: RegisterDto) {
+  const user = await this.prisma.user.create({ ... });
+  await this.emailService.sendWelcome(user.email); // ← synchronous call
+  return this.issueTokens(user.id, user.email);
+}
+```
+
+This works, but it has a hidden cost: registration now fails if the email service is down or slow. A user can't create an account because of an email delivery problem. Those two things should be completely independent.
+
+The answer is an event. Auth publishes `user.created` and moves on. The notification service picks it up whenever it's ready.
+
+## Publishing the event
+
+Auth-service gets a `ClientProxy` injected — NestJS's abstraction over message brokers — and emits the event as fire-and-forget:
+
+```ts
+const event: UserCreatedEvent = {
+  userId: user.id,
+  email: user.email,
+  createdAt: user.createdAt,
+};
+this.notificationClient.emit(USER_CREATED_EVENT, event);
+```
+
+`ClientProxy.emit()` returns an Observable. You don't subscribe to it. The RabbitMQ transport buffers the message internally. Registration succeeds and returns tokens immediately — the notification service is not in the critical path.
+
+`USER_CREATED_EVENT` is a constant from `libs/contracts`. Both services import it from the same place, so there's no risk of a typo mismatch on the event name silently breaking the consumer.
+
+## Consuming the event
+
+On the notification service side, `@EventPattern` maps the event name to a handler:
+
+```ts
+@EventPattern(USER_CREATED_EVENT)
+async handleUserCreated(@Payload() event: UserCreatedEvent) {
+  this.logger.log(`Sending welcome email to ${event.email}`);
+  await this.emailService.sendWelcome(event.email);
+}
+```
+
+If the notification service is down when auth publishes, RabbitMQ holds the message in the queue. When the service comes back up, it processes the backlog. This durability is what makes event-driven communication worth the added complexity.
+
+## The hybrid service problem
+
+Originally the notification service was a pure RabbitMQ microservice, bootstrapped with `NestFactory.createMicroservice()`. That works fine for consuming events, but it can't serve HTTP requests.
+
+The problem arrived when I needed `POST /notify/send` — an on-demand email endpoint that the gateway calls synchronously. A pure microservice has no HTTP listener.
+
+Running two separate processes (one for RabbitMQ, one for HTTP) felt like unnecessary overhead for what was essentially one logical service. NestJS supports hybrid apps that do both:
+
+```ts
+// main.ts
+const app = await NestFactory.create(AppModule);
+
+app.connectMicroservice<MicroserviceOptions>({
+  transport: Transport.RMQ,
+  options: {
+    urls: [process.env.RABBITMQ_URL],
+    queue: 'notification_queue',
+    queueOptions: { durable: true },
+  },
+});
+
+await app.startAllMicroservices(); // starts RabbitMQ consumer
+await app.listen(3004);            // starts HTTP server
+```
+
+One process, two transports. The `@EventPattern` handlers respond to RabbitMQ messages; the `@Post('/notify/send')` handler responds to HTTP. The hybrid pattern meant no duplicate code, no separate deployment, and no inter-process communication between two halves of the same service.
+
+## Securing the HTTP endpoint
+
+The `POST /notify/send` endpoint is internal — only the gateway should be able to call it. Using JWT here would be circular (the notification service would need to validate tokens against the auth service). Instead, I used a pre-shared key:
+
+```ts
+// internal-key.guard.ts
+@Injectable()
+export class InternalKeyGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest();
+    const key = req.headers['x-internal-key'];
+    if (key !== this.config.getOrThrow('INTERNAL_NOTIFICATION_KEY')) {
+      throw new UnauthorizedException();
+    }
+    return true;
+  }
+}
+```
+
+The gateway automatically injects the key on every proxied notification request via `NotificationProxyService`. The notification service validates it before processing. External callers don't know the key.
+
+## RabbitMQ startup ordering
+
+One operational detail: RabbitMQ must be healthy before auth-service starts. If auth-service boots before the broker is ready, the `ClientProxy` can't connect and the service crashes.
+
+Docker Compose supports this with `depends_on` conditions:
+
+```yaml
+auth-service:
+  depends_on:
+    rabbitmq:
+      condition: service_healthy
+
+rabbitmq:
+  image: rabbitmq:3-management-alpine
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+```
+
+The `service_healthy` condition makes Compose wait for the healthcheck to pass before starting the dependent service. Without this, you'd get intermittent startup failures that are annoying to debug.
+
+## What Phase 2 delivered
+
+- `user.created` event published from auth-service to RabbitMQ on every registration
+- Notification service consuming that event and sending a welcome email
+- Hybrid bootstrap — same process serves HTTP on port 3004 and consumes from RabbitMQ
+- `POST /notify/send` for on-demand emails, secured with `x-internal-key`
+- Docker Compose updated with RabbitMQ and the notification service container
+- `libs/contracts` carrying the first real shared event type
+
+Registration was now fully decoupled from email delivery. Phase 3 would expand the platform with Google OAuth, a URL shortener, and cookie-based auth.

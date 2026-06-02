@@ -108,9 +108,20 @@ export class AuthProxyController {
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const tokens = (await this.authProxy.googleProfile(
-      req.user as GoogleProfile,
-    )) as { accessToken: string; refreshToken: string };
+    const state = (req.query.state as string) || '';
+    const loginBase = state
+      ? state.replace(/\/dashboard.*$/, '')
+      : (process.env.FRONTEND_URL ?? '/');
+
+    let tokens: { accessToken: string; refreshToken: string };
+    try {
+      tokens = (await this.authProxy.googleProfile(
+        req.user as GoogleProfile,
+      )) as { accessToken: string; refreshToken: string };
+    } catch {
+      res.redirect(`${loginBase}?error=auth_failed`);
+      return;
+    }
 
     const isProd = process.env.NODE_ENV === 'production';
     const cookieOptions = {
@@ -130,8 +141,7 @@ export class AuthProxyController {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    const redirectTarget =
-      (req.query.state as string) || process.env.FRONTEND_URL || '/';
+    const redirectTarget = state || process.env.FRONTEND_URL || '/';
     res.redirect(redirectTarget);
   }
 }

@@ -1,0 +1,148 @@
+---
+title: "Building Atlas, Part 1: Monorepo, API Gateway, and JWT Auth"
+date: ""
+description: "How I set up a NestJS monorepo, designed the API Gateway pattern, and built a JWT auth service from scratch — the foundation everything else in Atlas sits on."
+tags: ["Atlas", "NestJS", "PostgreSQL", "Auth", "Microservices"]
+---
+
+Every backend project has a phase where you're not shipping features — you're building the ground the features will stand on. For Atlas, that was the first phase: deciding on a monorepo layout, getting the gateway pattern right, wiring JWT auth, and making sure the Prisma schema wouldn't need painful surgery the moment a second service showed up.
+
+## What Atlas is
+
+The core idea behind Atlas is simple: take the services that almost every backend needs — authentication, URL shortening, notifications, content management — and build each one as a proper microservice, all living under a single backend repository. Not a distributed monolith where everything is technically separate but practically tangled, and not a collection of isolated repos that are painful to run together locally. One repo, real service boundaries, and a single gateway in front of all of it.
+
+Atlas is a NestJS microservices backend built as a portfolio project. The goal was to demonstrate what those service boundaries actually look like in practice — an API Gateway pattern, event-driven communication between services, and clean NestJS modular design — not a toy "hello world" microservices setup, but something that could plausibly be a production backend.
+
+The stack I settled on:
+
+- **Framework:** NestJS 11 monorepo
+- **Language:** TypeScript
+- **ORM:** Prisma v7 with `@prisma/adapter-pg`
+- **Database:** PostgreSQL 16
+- **Auth:** JWT (access + refresh) + bcrypt
+- **Containers:** Docker Compose
+
+## Monorepo layout
+
+NestJS has first-class monorepo support via `nest-cli.json` — each app registers its own entry point and build config. I ended up with:
+
+```
+apps/
+ ├── gateway/          # Port 3000 — all traffic enters here
+ ├── auth-service/     # Port 3001 — identity and tokens
+ └── content-service/  # Port 3002 — content CRUD
+
+libs/
+ └── contracts/        # Shared event types and DTOs
+```
+
+The `contracts` library was important from day one. When multiple services need to agree on the shape of an event or command, the definition should live in exactly one place. I wired it up with a `@app/contracts` path alias in `tsconfig.json` so any service can import it cleanly without relative paths.
+
+## The API Gateway pattern
+
+All traffic routes through a single gateway. The gateway's job is to authenticate the request, then proxy it to the right service. Each service has its own proxy controller and proxy service in the gateway:
+
+```ts
+// gateway proxies content requests downstream
+@Post()
+@UseGuards(JwtAuthGuard)
+async create(@Body() body: CreateContentDto, @Req() req: Request) {
+  return this.contentProxyService.create(body, req.user.userId);
+}
+```
+
+The downstream services do no auth themselves — they trust that if a request arrived from the gateway, it was already validated. Auth logic stays in one place; services stay small.
+
+## JWT auth: access + refresh tokens
+
+A two-token setup: a short-lived access token (15 minutes) and a longer-lived refresh token (7 days). Both are JWTs signed with separate secrets so a compromised access secret can't be used to forge refresh tokens.
+
+```ts
+private issueTokens(userId: string, email: string): TokenPair {
+  const payload = { sub: userId, email };
+  const accessToken = this.jwtService.sign(payload, {
+    secret: this.accessSecret,
+    expiresIn: 60 * 15,           // 15 minutes in seconds
+  });
+  const refreshToken = this.jwtService.sign(payload, {
+    secret: this.refreshSecret,
+    expiresIn: 60 * 60 * 24 * 7, // 7 days in seconds
+  });
+  return { accessToken, refreshToken };
+}
+```
+
+One gotcha: `@nestjs/jwt` v11 requires `expiresIn` to be a number (seconds), not a string like `'15m'`. The type definitions enforce it. If you pass a string it compiles but silently produces tokens with incorrect expiry at runtime.
+
+## The nullable `passwordHash` field
+
+Google-only users have no password, so `passwordHash` is nullable on the `User` model:
+
+```prisma
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  googleId     String?   @unique @map("google_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+}
+```
+
+The `login()` method guards against calling `bcrypt.compare` on a null hash:
+
+```ts
+if (!user || !user.passwordHash) {
+  throw new UnauthorizedException('Invalid credentials');
+}
+```
+
+`bcrypt.compare(password, null)` doesn't throw — it returns `false`. The guard is still worth being explicit about.
+
+## Prisma v7 and the driver adapter
+
+Prisma v7 removed the `url` field from `datasource db`. The database connection is passed via a driver adapter at runtime:
+
+```ts
+// prisma.service.ts
+const pool = new Pool({ connectionString: this.config.getOrThrow('DATABASE_URL') });
+const adapter = new PrismaPg(pool);
+this.prisma = new PrismaClient({ adapter });
+```
+
+The schema file has no connection string at all:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  // no url — adapter handles it at runtime
+}
+```
+
+The other Prisma detail: `prisma generate` must run in the production Docker stage, not just the builder stage. The generated client is runtime code, and it gets wiped when you copy only the production `node_modules`.
+
+## Content service and ownership
+
+The content service is intentionally simple: create, list, and fetch items scoped to the requesting user. The ownership check is a single `where` clause:
+
+```ts
+async findOne(id: string, userId: string) {
+  const item = await this.prisma.content.findFirst({
+    where: { id, ownerId: userId },
+  });
+  if (!item) throw new NotFoundException();
+  return item;
+}
+```
+
+The gateway extracts `userId` from the JWT, attaches it to the proxied request as `x-user-id`, and the downstream service trusts it. No re-validating the token in every service.
+
+## What Phase 1 looked like at the end
+
+- NestJS monorepo with 3 apps and 1 shared library
+- API Gateway proxying all traffic with JWT guard
+- Auth: register, login, refresh — full JWT flow with bcrypt
+- Content: create, list, get with ownership validation
+- Docker Compose with gateway, auth-service, content-service, and Postgres
+- Initial Prisma migration in place
+
+No events, no Google auth, no additional services. Just a solid foundation to build on. Phase 2 would introduce the first async behaviour in the system — RabbitMQ and a notification service.

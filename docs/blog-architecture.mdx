@@ -1,0 +1,143 @@
+---
+title: "Atlas Architecture Decisions: The Why Behind the Design"
+date: ""
+description: "A deep dive into the key architectural decisions made while building Atlas — the API Gateway pattern, hybrid services, shared contracts, event-driven decoupling, dual-transport auth, and what each decision cost."
+tags: ["Atlas", "NestJS", "Architecture", "Microservices", "Design"]
+---
+
+Building Atlas involved a series of decisions where multiple approaches were viable. This post documents the choices that shaped the system's structure, why I made them, and what each one cost. Architecture decisions are most useful when you can see the tradeoff that was accepted, not just the option that was picked.
+
+## Decision 1: Single API Gateway over direct service access
+
+**What:** All traffic enters through one gateway service. Clients never talk directly to auth-service, content-service, or any other service.
+
+**Why:** Without a gateway, every service needs its own auth logic. You'd validate JWTs in the content service, the URL shortener, and anywhere else you add a protected endpoint. That's duplicated security code in multiple places — when you change how tokens work, you change it everywhere.
+
+The gateway handles auth once and attaches `x-user-id` to every proxied request. Downstream services trust that header. They become dumber and easier to reason about.
+
+**The cost:** The gateway is a single point of failure. If it goes down, nothing works. This is acceptable for a project of this scale — in production you'd run multiple gateway instances behind a load balancer. The gateway is also stateless (it holds no session state), which makes horizontal scaling straightforward.
+
+**What it enabled:** Clean service boundaries. The content service is genuinely just a CRUD service. It has no knowledge of JWTs, OAuth, or rate limiting. That separation makes each service testable and replaceable in isolation.
+
+---
+
+## Decision 2: NestJS monorepo with a shared contracts library
+
+**What:** All services live in one repository under `apps/`. Shared types live in `libs/contracts` with a `@app/contracts` path alias.
+
+**Why:** The alternative is separate repositories per service (a "polyrepo"). Polyrepos make sense when services are maintained by different teams who need independent deployment pipelines. For a single-developer project, separate repos add friction: you need to publish packages, version them, and update dependencies every time a shared type changes.
+
+The monorepo lets you change an event type in `libs/contracts` and immediately see which services break at compile time. TypeScript path aliases (`@app/contracts`) keep imports clean without relative paths across app boundaries.
+
+**The cost:** The build system has to handle multiple apps. NestJS's monorepo mode via `nest-cli.json` handles this well, but it adds configuration surface area. Build times grow as you add services. CI has to build everything even if you only changed one service.
+
+**What it enabled:** `UserCreatedEvent` is defined exactly once. Both the publisher (auth-service) and the consumer (notification-service) import it from the same source. A typo in the event name is a compile error, not a silent runtime failure.
+
+---
+
+## Decision 3: Event-driven decoupling for welcome email
+
+**What:** Auth-service publishes a `user.created` event to RabbitMQ. Notification-service consumes it asynchronously and sends the welcome email.
+
+**Why:** The alternative — calling the notification service directly from `register()` — couples registration to email delivery. If the email service is slow or down, registrations fail or slow down. Users shouldn't experience email infrastructure problems as auth problems.
+
+Events also make the system easier to extend. If you later want to trigger a Slack notification, an analytics event, or an onboarding sequence on user creation, you add a new consumer. You don't touch the auth service.
+
+**The cost:** Eventual consistency. The welcome email doesn't arrive the instant the registration response goes out — there's a small delay while RabbitMQ delivers the message. For a welcome email this is completely acceptable; for something like an order confirmation it might need more thought.
+
+Debugging async flows is also harder. A synchronous call either succeeds or throws. An event can be published successfully but fail to process in the consumer — and the publisher has no visibility into that. Structured logging in the consumer becomes important.
+
+**What it enabled:** Registration is fast and reliable regardless of email infrastructure. Adding new reactions to `user.created` requires no changes to auth-service.
+
+---
+
+## Decision 4: Hybrid notification service (HTTP + RabbitMQ)
+
+**What:** The notification service runs as a single process that simultaneously consumes RabbitMQ messages and serves HTTP on port 3004.
+
+**Why:** The initial implementation was a pure RabbitMQ microservice. When `POST /notify/send` was needed — for on-demand emails triggered by the gateway — a pure microservice had no HTTP listener.
+
+The options were:
+1. Split into two separate services (one for events, one for HTTP)
+2. Use NestJS's hybrid app pattern
+
+Two services for what is logically one concern felt like unnecessary overhead. The hybrid pattern is a first-class NestJS feature:
+
+```ts
+const app = await NestFactory.create(AppModule);
+app.connectMicroservice({ transport: Transport.RMQ, ... });
+await app.startAllMicroservices(); // RabbitMQ consumer
+await app.listen(3004);            // HTTP server
+```
+
+**The cost:** One process doing two things means one crash takes down both transport layers. In a high-traffic system you'd want to separate them so the event consumer can scale independently of the HTTP server. At Atlas's scale, that's premature.
+
+**What it enabled:** The notification service owns all email-related behaviour — async events and synchronous API calls — in one deployable unit. No inter-process communication between two halves of the same concern.
+
+---
+
+## Decision 5: Dual-transport auth (cookies + Bearer header)
+
+**What:** The JWT strategy extracts tokens from `httpOnly` cookies first, then falls back to the `Authorization: Bearer` header.
+
+**Why:** Google OAuth forces the issue. After the OAuth callback, you're doing a browser redirect — you can't inject a header. Cookies are the only way to deliver tokens through a redirect flow.
+
+But existing API clients (Postman, mobile apps, server-to-server calls) use Bearer headers. Breaking that would be disruptive for no reason.
+
+```ts
+jwtFromRequest: ExtractJwt.fromExtractors([
+  (req) => req?.cookies?.access_token ?? null,
+  ExtractJwt.fromAuthHeaderAsBearerToken(),
+]),
+```
+
+**The cost:** Two auth paths mean two things to test and two things that can go wrong. Cookie auth also requires CORS to be configured with `credentials: true` and an explicit origin allowlist — a wildcard origin won't work.
+
+**What it enabled:** Browser-based flows (Google OAuth, cookie-first navigation) and API-client flows (Bearer header) both work through the same guard, with no changes to any controller or downstream service.
+
+---
+
+## Decision 6: Internal key auth for service-to-service calls
+
+**What:** `POST /notify/send` on the notification service requires an `x-internal-key` header. The gateway injects it automatically. External callers can't call the endpoint without the key.
+
+**Why:** The notification service needs to know whether a request came from the gateway (trusted) or from the internet (not trusted). Using JWT here would be circular — the notification service would need to call the auth service to validate a token, which defeats the purpose of an internal endpoint.
+
+A pre-shared secret is the standard pattern for service-to-service calls in a controlled environment. The key is generated once (`openssl rand -hex 32`), stored in environment variables, and rotated if compromised.
+
+**The cost:** Pre-shared keys don't provide the same security guarantees as mutual TLS (mTLS). If the key leaks, you need to rotate it across both services simultaneously. For a project running on a private network this is acceptable; for services exposed to the public internet, mTLS would be stronger.
+
+**What it enabled:** The notification service HTTP endpoint is unreachable without the key. Even if someone discovers the port and endpoint path, they can't trigger email sends.
+
+---
+
+## Decision 7: Prisma v7 with driver adapter
+
+**What:** Database connections are passed via `PrismaPg` adapter at runtime, not configured in `schema.prisma`.
+
+**Why:** Prisma v7 removed the `url` field from the datasource block. This isn't optional — the adapter is the only way to connect.
+
+```ts
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+```
+
+The practical implication: `prisma generate` must run in the production Docker stage. The generated client binds to the adapter interface, which isn't available at build time without the generate step.
+
+**The cost:** More boilerplate in `PrismaService`. Every service that uses Prisma needs to set up the pool and adapter rather than relying on the schema file for config.
+
+**What it enabled:** Connection pooling is explicit and configurable per service. You can tune pool size, idle timeout, and connection limits on a service-by-service basis — something that wasn't possible when the connection string was baked into the schema.
+
+---
+
+## What Atlas would look like with more time
+
+The decisions above all accepted tradeoffs that make sense for a portfolio project. The most significant limitations worth addressing in a production system:
+
+- **Refresh token revocation** — tokens are signed JWTs with no server-side record. A stolen refresh token is valid for 7 days with no way to revoke it. Storing token IDs in Redis with TTL would fix this.
+- **No Redis** — every request hits Postgres. The URL shortener redirect path especially would benefit from a Redis cache for hot slugs.
+- **Single gateway replica** — the gateway is a single point of failure. In production this would be behind a load balancer with multiple instances.
+- **Unbounded list endpoints** — `GET /content`, `GET /links`, `GET /email-templates` return everything. Pagination is missing.
+
+None of these are oversights — they're deliberate tradeoffs made to keep the project focused on demonstrating architecture patterns rather than operational concerns.

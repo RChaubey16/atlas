@@ -1,0 +1,163 @@
+---
+title: "Building Atlas, Part 4: Rate Limiting, Health Checks, and the Email Playground"
+date: ""
+description: "The hardening phase: adding rate limiting keyed by user ID, structured HTTP logging, health and readiness probes, Joi config validation — and building the email playground as Atlas's final feature."
+tags: ["Atlas", "NestJS", "Rate Limiting", "Health Checks", "Email"]
+---
+
+The first three phases of Atlas were about getting things working. Phase 4 was about making them production-ready — and then adding one more substantial feature before calling the project complete. This phase is less dramatic than the others but arguably more important: the difference between a demo and something you'd actually run.
+
+## Rate limiting — keyed by user ID, not IP
+
+`@nestjs/throttler` makes the basic case easy:
+
+```ts
+ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }])
+```
+
+100 requests per minute, globally. But the default keying by IP has a real problem: if users are behind a NAT or corporate proxy, they all share one IP. A single user hammering the API could trigger the throttle for everyone on their network.
+
+The fix was a custom guard that keys by `userId` when a JWT is present, falling back to IP for anonymous traffic:
+
+```ts
+// user-throttler.guard.ts
+@Injectable()
+export class UserThrottlerGuard extends ThrottlerGuard {
+  protected async getTracker(req: Request): Promise<string> {
+    const user = (req as any).user;
+    return user?.userId ?? req.ip;
+  }
+}
+```
+
+Authenticated users get their own bucket — 100 requests per minute per user. Anonymous users share per-IP. The guard is registered globally via `APP_GUARD`, so every route gets it with no per-controller decoration needed.
+
+## Structured HTTP logging
+
+Every request should produce exactly one log line: `METHOD URL STATUS +Xms`. An interceptor is the right place for this — it wraps the full request lifecycle and has access to both the incoming request and the outgoing response:
+
+```ts
+// http-logging.interceptor.ts
+intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+  const req = context.switchToHttp().getRequest<Request>();
+  const start = Date.now();
+
+  return next.handle().pipe(
+    tap(() => {
+      const res = context.switchToHttp().getResponse<Response>();
+      this.logger.log(
+        `${req.method} ${req.url} ${res.statusCode} +${Date.now() - start}ms`,
+      );
+    }),
+  );
+}
+```
+
+Registered globally in `main.ts`. Every proxied request, every redirect, every health ping — one log line. This is usually the first thing you look at when diagnosing a latency spike in production.
+
+## Health endpoints — liveness vs readiness
+
+All five services got a liveness endpoint at `GET /health`. The distinction between liveness and readiness matters:
+
+- **Liveness** — is the process alive? Returns immediately. If this fails, the orchestrator restarts the container.
+- **Readiness** — is the process ready to serve traffic? Actively checks dependencies. If this fails, the orchestrator stops routing traffic to the instance.
+
+The gateway's readiness endpoint pings all four downstream services:
+
+```ts
+@Get('ready')
+@HealthCheck()
+readiness() {
+  return this.health.check([
+    () => this.http.pingCheck('auth-service', `${authUrl}/health`),
+    () => this.http.pingCheck('content-service', `${contentUrl}/health`),
+    () => this.http.pingCheck('url-shortener', `${urlShortenerUrl}/health`),
+    () => this.http.pingCheck('notification-service', `${notificationUrl}/health`),
+  ]);
+}
+```
+
+If any downstream service is unreachable, the gateway reports as not ready. This is important in a rolling deployment: the new gateway instance won't receive traffic until all its dependencies are confirmed healthy.
+
+## Joi config validation
+
+Missing environment variables should be a startup problem, not a runtime problem. Joi lets you declare exactly what config the gateway expects and crash immediately with a clear message if anything is missing:
+
+```ts
+ConfigModule.forRoot({
+  validationSchema: Joi.object({
+    JWT_ACCESS_SECRET:          Joi.string().required(),
+    AUTH_SERVICE_URL:           Joi.string().uri().required(),
+    CONTENT_SERVICE_URL:        Joi.string().uri().required(),
+    URL_SHORTENER_URL:          Joi.string().uri().required(),
+    INTERNAL_NOTIFICATION_KEY:  Joi.string().required(),
+    GOOGLE_CLIENT_ID:           Joi.string().required(),
+    GOOGLE_CLIENT_SECRET:       Joi.string().required(),
+    NOTIFICATION_SERVICE_URL:   Joi.string().uri().default('http://localhost:3004'),
+    GATEWAY_PORT:               Joi.number().default(3000),
+    NODE_ENV:                   Joi.string().valid('development', 'production', 'test').default('development'),
+  }),
+})
+```
+
+If you deploy without `JWT_ACCESS_SECRET`, the gateway refuses to start and prints exactly which variable is missing. No more "works locally, broken in production because someone forgot an env var."
+
+## The Email Playground
+
+The email playground was the final feature: a block-based email template builder. Instead of writing raw HTML, you compose an email from typed blocks — headings, paragraphs, images, buttons, dividers, spacers, hero sections, logos, footers, social links. The notification service renders them to email-safe HTML.
+
+Templates are stored in the `email_templates` table with blocks serialised as a JSON column:
+
+```prisma
+model EmailTemplate {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  blocksJson  Json     @map("blocks_json")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+}
+```
+
+The block renderer is a pure function that handles 10 block types:
+
+```ts
+// blocks-renderer.ts
+function renderBlock(block: EmailBlock): string {
+  switch (block.type) {
+    case 'heading':   return `<h${block.level}>${escape(block.text)}</h${block.level}>`;
+    case 'paragraph': return `<p>${escape(block.text)}</p>`;
+    case 'button':    return `<a href="${block.url}" style="...">${escape(block.label)}</a>`;
+    case 'image':     return `<img src="${block.src}" alt="${escape(block.alt)}" />`;
+    case 'divider':   return `<hr />`;
+    // ...
+  }
+}
+```
+
+Text fields support `{{variable}}` substitution — you pass a `variables` map at render time and tokens are replaced before outputting HTML. Useful for personalisation without introducing a full templating language.
+
+The gateway proxies all email playground routes with JWT auth and forwards `x-user-id` to the notification service. One intentional asymmetry: the email playground proxy does **not** inject `x-internal-key`. The internal key guards `POST /notify/send` (which triggers real email sends); the playground endpoints are scoped by user ID, not by service identity.
+
+## Gateway `PORT` env var handling
+
+One small production detail: cloud platforms like Railway and Render inject a `PORT` environment variable automatically. The gateway's `main.ts` reads it in priority order:
+
+```ts
+const port = process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000;
+await app.listen(port);
+```
+
+This means the same image works on a cloud platform (which sets `PORT`) and locally (which sets `GATEWAY_PORT`).
+
+## What Phase 4 — and Atlas — delivered
+
+- Rate limiting per user ID (authenticated) or IP (anonymous)
+- Structured `METHOD URL STATUS +Xms` logging on every request
+- Liveness and readiness health probes across all 5 services
+- Joi config validation crashing fast on missing env vars
+- Email playground: full CRUD, 10 block types, variable substitution, render to HTML, send test email
+- Swagger docs on the gateway
+
+The remaining roadmap items — Redis caching, refresh token revocation, RBAC, pagination — are improvements on a working system, not missing pieces. The foundation is solid enough to extend.
