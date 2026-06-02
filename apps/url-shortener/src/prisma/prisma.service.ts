@@ -9,7 +9,9 @@ export class PrismaService
 {
   constructor() {
     const dbUrl = process.env.DATABASE_URL ?? '';
-    const sslRequired = /[?&]sslmode=(require|verify-ca|verify-full)/.test(dbUrl);
+    const sslRequired = /[?&]sslmode=(require|verify-ca|verify-full)/.test(
+      dbUrl,
+    );
     const adapter = new PrismaPg({
       connectionString: dbUrl,
       ...(sslRequired && { ssl: { rejectUnauthorized: false } }),

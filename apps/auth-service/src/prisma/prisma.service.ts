@@ -13,7 +13,9 @@ export class PrismaService
     // *.railway.internal URL does not. Only disable cert verification when
     // the URL explicitly demands SSL — forcing SSL on internal connections
     // causes an immediate TLS negotiation failure and kills the connection.
-    const sslRequired = /[?&]sslmode=(require|verify-ca|verify-full)/.test(dbUrl);
+    const sslRequired = /[?&]sslmode=(require|verify-ca|verify-full)/.test(
+      dbUrl,
+    );
     const adapter = new PrismaPg({
       connectionString: dbUrl,
       ...(sslRequired && { ssl: { rejectUnauthorized: false } }),
