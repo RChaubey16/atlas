@@ -8,9 +8,11 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
+    const isProd = process.env.NODE_ENV === 'production';
     const adapter = new PrismaPg({
       connectionString: process.env.DATABASE_URL,
-      connectionTimeoutMillis: 5000,
+      ssl: isProd ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 10000,
       idleTimeoutMillis: 30000,
       keepAlive: true,
     });
