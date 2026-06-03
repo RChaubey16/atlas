@@ -40,11 +40,6 @@ export class HealthController {
         ),
       () =>
         this.http.pingCheck(
-          'content-service',
-          `${this.config.get<string>('CONTENT_SERVICE_URL')}/health`,
-        ),
-      () =>
-        this.http.pingCheck(
           'url-shortener',
           `${this.config.get<string>('URL_SHORTENER_URL')}/health`,
         ),

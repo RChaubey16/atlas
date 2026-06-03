@@ -29,15 +29,6 @@
         "webpack": true
       }
     },
-    "content-service": {
-      "type": "application",
-      "root": "apps/content-service",
-      "entryFile": "main",
-      "sourceRoot": "apps/content-service/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/content-service/tsconfig.app.json"
-      }
-    },
     "notification-service": {
       "type": "application",
       "root": "apps/notification-service",

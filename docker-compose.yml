@@ -42,8 +42,7 @@ services:
     environment:
       GATEWAY_PORT: 3000
       AUTH_SERVICE_URL: http://auth-service:3001
-      CONTENT_SERVICE_URL: http://content-service:3002
-      URL_SHORTENER_URL: http://url-shortener:3003
+URL_SHORTENER_URL: http://url-shortener:3003
       NOTIFICATION_SERVICE_URL: http://notification-service:3004
       INTERNAL_NOTIFICATION_KEY: ${INTERNAL_NOTIFICATION_KEY}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
@@ -62,8 +61,6 @@ services:
       start_period: 30s
     depends_on:
       auth-service:
-        condition: service_healthy
-      content-service:
         condition: service_healthy
       url-shortener:
         condition: service_healthy
@@ -95,28 +92,6 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
-        condition: service_healthy
-
-  content-service:
-    build: .
-    container_name: atlas-content-service
-    ports:
-      - "3002:3002"
-    volumes:
-      - .:/app
-      - /app/node_modules
-    command: pnpm run start:content
-    environment:
-      CONTENT_SERVICE_PORT: 3002
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/atlas?schema=public
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3002/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    depends_on:
-      postgres:
         condition: service_healthy
 
   url-shortener:

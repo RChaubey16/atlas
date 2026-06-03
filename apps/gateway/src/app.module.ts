@@ -7,8 +7,6 @@ import * as Joi from 'joi';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { ContentModule } from './content/content.module';
-import { DummyModule } from './dummy/dummy.module';
 import { EmailPlaygroundModule } from './email-playground/email-playground.module';
 import { UrlShortenerModule } from './url-shortener/url-shortener.module';
 import { NotificationModule } from './notification/notification.module';
@@ -25,7 +23,6 @@ import { UserThrottlerGuard } from './common/user-throttler.guard';
         GATEWAY_PORT: Joi.number().default(3000),
         JWT_ACCESS_SECRET: Joi.string().required(),
         AUTH_SERVICE_URL: Joi.string().uri().required(),
-        CONTENT_SERVICE_URL: Joi.string().uri().required(),
         URL_SHORTENER_URL: Joi.string().uri().required(),
         NOTIFICATION_SERVICE_URL: Joi.string()
           .uri()
@@ -45,8 +42,6 @@ import { UserThrottlerGuard } from './common/user-throttler.guard';
     }),
     ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }]),
     AuthModule,
-    ContentModule,
-    DummyModule,
     EmailPlaygroundModule,
     UrlShortenerModule,
     NotificationModule,

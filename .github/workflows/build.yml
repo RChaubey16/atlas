@@ -33,9 +33,6 @@ jobs:
       - name: Build auth-service
         run: pnpm build:auth
 
-      - name: Build content-service
-        run: pnpm build:content
-
       - name: Build url-shortener
         run: pnpm build:url-shortener
 

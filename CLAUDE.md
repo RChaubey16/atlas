@@ -8,19 +8,18 @@
 
 All features are **complete and merged to `main`**.
 
-- NestJS monorepo with 5 apps and 1 shared library
+- NestJS monorepo with 4 apps and 1 shared library
 - Full auth flow: register, login, refresh tokens (JWT + bcrypt)
 - Google OAuth 2.0 via Passport — gateway owns the flow, auth-service owns identity
 - Tokens delivered as `httpOnly` cookies (browser) or JSON (API clients) — JwtStrategy accepts both
 - CORS configured with `credentials: true` and `ALLOWED_ORIGINS` allowlist for `*.ruturaj.xyz` subdomains
-- Content CRUD with ownership validation
 - URL Shortener — create/list/delete short links, click tracking, 30-day expiry, nightly cleanup cron
 - API Gateway proxying all traffic with JWT guard; serves `GET /templates` and `GET /templates/:id/preview` (no auth required)
 - Notification Service — hybrid service: RabbitMQ microservice (consumes `user.created`, sends welcome email via Resend) **and** HTTP server on port 3004 (accepts `POST /notify/send` with internal key auth)
 - Auth Service publishes `user.created` events to RabbitMQ via `ClientProxy`
 - Template definitions live in `libs/contracts` — shared between gateway (serves them over HTTP) and notification service (uses them to send mail)
 - `SendEmailCommand` contract in `libs/contracts` — used by gateway → notification service for on-demand email sends
-- Docker Compose running all 7 services (gateway, auth, content, url-shortener, postgres, rabbitmq, notification)
+- Docker Compose running all 6 services (gateway, auth, url-shortener, postgres, rabbitmq, notification)
 - Prisma v7 with `@prisma/adapter-pg` (driver adapter required — no `url` in schema)
 - `prisma generate` runs in Dockerfile (required before TypeScript compilation)
 - Gateway built with webpack (`"webpack": true` in `nest-cli.json`) — output goes to `dist/apps/gateway/main.js`
@@ -37,7 +36,6 @@ Client / Browser
        │
        ▼
   API Gateway (port 3000) → Auth Service (port 3001)         → PostgreSQL
-                           → Content Service (port 3002)      → PostgreSQL
                            → URL Shortener (port 3003)        → PostgreSQL
                            → Notification Service (port 3004) ← x-internal-key
 
@@ -50,7 +48,6 @@ Auth Service --[user.created]--> RabbitMQ (port 5672) --> Notification Service -
 apps/
  ├── gateway/              # Port 3000 — CORS, cookie-parser, JWT + Google strategies, throttling, logging, proxies all routes
  ├── auth-service/         # Port 3001 — register, login, refresh, Google find-or-create, JWT, bcrypt, Prisma
- ├── content-service/      # Port 3002 — create/fetch content, ownership validation
  ├── url-shortener/        # Port 3003 — short links, click events, nightly cleanup cron
  └── notification-service/ # Port 3004 (HTTP) + RabbitMQ — consumes user.created, POST /notify/send (internal key), sends email
 
@@ -58,7 +55,7 @@ libs/
  └── contracts/            # Shared event types, commands, and template definitions (@app/contracts path alias)
 
 prisma/
- └── schema.prisma         # User, Content, ShortLink, ClickEvent, UserTemplate, EmailTemplate models (no url= in datasource — Prisma v7)
+ └── schema.prisma         # User, ShortLink, ClickEvent, UserTemplate, EmailTemplate models (no url= in datasource — Prisma v7)
 
 docs/
  ├── notes.md              # Plain-English project overview
@@ -106,7 +103,7 @@ plan/
 - **`passport-google-oauth20` strategy name** — must pass `'google'` as the second arg: `PassportStrategy(Strategy, 'google')`. Without it the strategy name defaults and `AuthGuard('google')` won't find it.
 - **CORS `credentials: true`** — required for browsers to send cookies cross-origin. Every allowed frontend must be in `ALLOWED_ORIGINS`. If `ALLOWED_ORIGINS` is empty, CORS is disabled entirely (safe default).
 - **`passwordHash` is nullable** — Google-only users have no password. `login()` guards against this: if `!user.passwordHash` it returns 401. Never call `bcrypt.compare` on a null hash.
-- **Gateway Joi validation** — `INTERNAL_NOTIFICATION_KEY`, `JWT_ACCESS_SECRET`, `AUTH_SERVICE_URL`, `CONTENT_SERVICE_URL`, `URL_SHORTENER_URL`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` are required at startup. Missing any of these crashes the gateway immediately.
+- **Gateway Joi validation** — `INTERNAL_NOTIFICATION_KEY`, `JWT_ACCESS_SECRET`, `AUTH_SERVICE_URL`, `URL_SHORTENER_URL`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` are required at startup. Missing any of these crashes the gateway immediately.
 - **`UserThrottlerGuard`** — extends `ThrottlerGuard` to key by `req.user.userId` when JWT is present, falling back to IP. This means authenticated users share a per-user bucket (not per-IP).
 
 ## Key Files
@@ -115,8 +112,8 @@ plan/
 |---|---|
 | `nest-cli.json` | Monorepo config — all apps and libs registered here |
 | `tsconfig.json` | Root TS config — includes `@app/contracts` path alias |
-| `prisma/schema.prisma` | DB schema — User, Content, ShortLink, ClickEvent, UserTemplate, EmailTemplate models |
-| `docker-compose.yml` | All 7 services wired together |
+| `prisma/schema.prisma` | DB schema — User, ShortLink, ClickEvent, UserTemplate, EmailTemplate models |
+| `docker-compose.yml` | All 6 services wired together |
 | `Dockerfile` | Dev image — includes `prisma generate` |
 | `Dockerfile.prod` | Multi-stage production image |
 | `.env` | Local env vars (not committed) |
@@ -154,11 +151,9 @@ JWT_ACCESS_SECRET="atlas-access-secret-change-in-production"
 JWT_REFRESH_SECRET="atlas-refresh-secret-change-in-production"
 GATEWAY_PORT=3000
 AUTH_SERVICE_PORT=3001
-CONTENT_SERVICE_PORT=3002
 URL_SHORTENER_PORT=3003
 NOTIFICATION_SERVICE_PORT=3004
 AUTH_SERVICE_URL="http://localhost:3001"
-CONTENT_SERVICE_URL="http://localhost:3002"
 URL_SHORTENER_URL="http://localhost:3003"
 NOTIFICATION_SERVICE_URL="http://localhost:3004"
 
@@ -195,9 +190,6 @@ Docker Compose overrides service URLs and `DATABASE_URL` to use container names 
 | POST | `/auth/refresh` | No | Swap refresh token for new pair |
 | GET | `/auth/google` | No | Initiate Google OAuth — `?redirect=<url>` (browser only) |
 | GET | `/auth/google/callback` | No | OAuth callback — sets cookies, redirects to frontend |
-| POST | `/content` | Cookie / Bearer | Create content item |
-| GET | `/content` | Cookie / Bearer | List own content |
-| GET | `/content/:id` | Cookie / Bearer | Get one content item |
 | POST | `/links` | Cookie / Bearer | Create short link |
 | GET | `/links` | Cookie / Bearer | List own short links with click counts |
 | DELETE | `/links/:slug` | Cookie / Bearer | Delete a short link |
@@ -213,7 +205,7 @@ Docker Compose overrides service URLs and `DATABASE_URL` to use container names 
 | POST | `/email-templates/render` | No | Render blocks JSON to email-safe HTML |
 | POST | `/email-templates/send-test` | Cookie / Bearer | Send a test email using a saved template |
 | GET | `/health` | No | Gateway liveness — uptime + timestamp |
-| GET | `/health/ready` | No | Gateway readiness — pings auth, content, url-shortener |
+| GET | `/health/ready` | No | Gateway readiness — pings auth, url-shortener, notification |
 
 ## Commands
 
@@ -230,14 +222,12 @@ npx prisma generate                      # regenerate client after schema change
 # Local dev (individual services)
 pnpm run start:gateway                   # gateway on port 3000
 pnpm run start:auth                      # auth-service on port 3001
-pnpm run start:content                   # content-service on port 3002
 pnpm run start:url-shortener             # url-shortener on port 3003
 pnpm run start:notification              # notification-service (requires RabbitMQ running)
 
 # Build
 pnpm run build:gateway
 pnpm run build:auth
-pnpm run build:content
 pnpm run build:notification
 
 # Test & lint
