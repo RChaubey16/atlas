@@ -1,11 +1,4 @@
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsUrl,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsUrl, Max, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateLinkDto {
