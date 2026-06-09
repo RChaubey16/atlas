@@ -43,6 +43,12 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document, {
     customSiteTitle: 'Atlas API Docs',
+    customJsStr: `
+      const m = document.createElement('meta');
+      m.setAttribute('property', 'og:image');
+      m.setAttribute('content', '/public/atlas.png');
+      document.head.appendChild(m);
+    `,
   });
 
   const port = process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000;

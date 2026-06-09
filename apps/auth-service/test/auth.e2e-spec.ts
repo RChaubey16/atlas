@@ -92,7 +92,10 @@ describe('Auth HTTP (e2e)', () => {
       expect(mockNotificationClient.emit).toHaveBeenCalledTimes(1);
       expect(mockNotificationClient.emit).toHaveBeenCalledWith(
         'user.created',
-        expect.objectContaining({ userId: 'user-id-1', email: 'test@example.com' }),
+        expect.objectContaining({
+          userId: 'user-id-1',
+          email: 'test@example.com',
+        }),
       );
     });
 

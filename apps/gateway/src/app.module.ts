@@ -1,6 +1,9 @@
+import { join } from 'path';
+
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
 import * as Joi from 'joi';
 
@@ -39,6 +42,10 @@ import { UserThrottlerGuard } from './common/user-throttler.guard';
           .valid('development', 'production', 'test')
           .default('development'),
       }),
+    }),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'public'),
+      serveRoot: '/public',
     }),
     ThrottlerModule.forRoot([{ name: 'global', ttl: 60000, limit: 100 }]),
     AuthModule,
