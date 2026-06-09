@@ -3,8 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cookieParser = require('cookie-parser');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import helmet = require('helmet');
+import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
