@@ -55,7 +55,12 @@ export class AuthService {
       email: user.email,
       createdAt: user.createdAt,
     };
-    this.notificationClient.emit(USER_CREATED_EVENT, event);
+    this.notificationClient.emit(USER_CREATED_EVENT, event).subscribe({
+      error: (err: Error) =>
+        this.logger.error(
+          `Failed to emit ${USER_CREATED_EVENT} for user ${event.userId}: ${err.message}`,
+        ),
+    });
 
     this.logger.log(`Registered user ${user.id} (${user.email})`);
     return this.issueTokens(user.id, user.email);
@@ -106,7 +111,12 @@ export class AuthService {
           email: user.email,
           createdAt: user.createdAt,
         };
-        this.notificationClient.emit(USER_CREATED_EVENT, event);
+        this.notificationClient.emit(USER_CREATED_EVENT, event).subscribe({
+          error: (err: Error) =>
+            this.logger.error(
+              `Failed to emit ${USER_CREATED_EVENT} for user ${event.userId}: ${err.message}`,
+            ),
+        });
         this.logger.log(
           `Google registered new user ${user.id} (${user.email})`,
         );

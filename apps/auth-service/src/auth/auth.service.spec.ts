@@ -24,7 +24,7 @@ describe('AuthService', () => {
   };
 
   const mockNotificationClient = {
-    emit: jest.fn(),
+    emit: jest.fn().mockReturnValue({ subscribe: jest.fn() }),
   };
 
   const mockConfigService = {

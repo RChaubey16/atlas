@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cookieParser = require('cookie-parser');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import helmet = require('helmet');
 
 import { AppModule } from './app.module';
 import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
@@ -11,6 +13,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet());
   app.use(cookieParser());
 
   const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
@@ -39,7 +42,9 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('docs', app, document, {
+    customSiteTitle: 'Atlas API Docs',
+  });
 
   const port = process.env.PORT ?? process.env.GATEWAY_PORT ?? 3000;
   await app.listen(port);

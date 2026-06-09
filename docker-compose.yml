@@ -42,7 +42,7 @@ services:
     environment:
       GATEWAY_PORT: 3000
       AUTH_SERVICE_URL: http://auth-service:3001
-URL_SHORTENER_URL: http://url-shortener:3003
+      URL_SHORTENER_URL: http://url-shortener:3003
       NOTIFICATION_SERVICE_URL: http://notification-service:3004
       INTERNAL_NOTIFICATION_KEY: ${INTERNAL_NOTIFICATION_KEY}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}

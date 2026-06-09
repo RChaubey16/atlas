@@ -24,6 +24,8 @@ model ShortLink {
   expiresAt DateTime?
   createdAt DateTime     @default(now())
   clicks    ClickEvent[]
+
+  @@index([userId])
 }
 
 model ClickEvent {
